@@ -3,17 +3,17 @@ package com.zyra.tcp;
 /*
     Intuition:
     ----------
-    We are building the lowest-level communication layer.
+    Convert single-client blocking server into multi-client server.
 
-    - ServerSocket listens for incoming TCP connections
-    - Once a client connects, we accept it
-    - Read input from client
-    - Echo response back (for testing)
+    Instead of handling client in main thread:
+        → Spawn a new thread per client
 
-    This acts as the foundation for Redis-like protocol handling later.
+    This ensures:
+        - Server keeps accepting new connections
+        - Each client runs independently
 */
 
-import java.io.*;
+import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
 
@@ -36,38 +36,13 @@ public class TCPServer {
                 Socket clientSocket = serverSocket.accept();
                 System.out.println("Client connected: " + clientSocket.getInetAddress());
 
-                handleClient(clientSocket);
+                // 🔥 Spawn new thread
+                ClientHandler handler = new ClientHandler(clientSocket);
+                new Thread(handler).start();
             }
 
         } catch (IOException e) {
             e.printStackTrace();
-        }
-    }
-
-    private void handleClient(Socket socket) {
-
-        try (
-                BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(socket.getInputStream())
-                );
-                BufferedWriter writer = new BufferedWriter(
-                        new OutputStreamWriter(socket.getOutputStream())
-                )
-        ) {
-            String line;
-
-            while ((line = reader.readLine()) != null) {
-
-                System.out.println("Received: " + line);
-
-                // Echo response
-                writer.write("Echo: " + line);
-                writer.newLine();
-                writer.flush();
-            }
-
-        } catch (IOException e) {
-            System.out.println("Client disconnected.");
         }
     }
 }
