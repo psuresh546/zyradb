@@ -1,25 +1,16 @@
 package com.zyra.tcp;
 
-/*
-    Intuition:
-    ----------
-    Convert single-client blocking server into multi-client server.
-
-    Instead of handling client in main thread:
-        → Spawn a new thread per client
-
-    This ensures:
-        - Server keeps accepting new connections
-        - Each client runs independently
-*/
-
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class TCPServer {
 
     private final int port;
+
+    // 🔥 Thread-safe client ID generator
+    private static final AtomicInteger clientCounter = new AtomicInteger(0);
 
     public TCPServer(int port) {
         this.port = port;
@@ -34,10 +25,13 @@ public class TCPServer {
                 System.out.println("Waiting for client...");
 
                 Socket clientSocket = serverSocket.accept();
-                System.out.println("Client connected: " + clientSocket.getInetAddress());
 
-                // 🔥 Spawn new thread
-                ClientHandler handler = new ClientHandler(clientSocket);
+                // 🔥 Assign unique client ID
+                int clientId = clientCounter.incrementAndGet();
+
+                System.out.println("[Client-" + clientId + "] Connected: " + clientSocket.getInetAddress());
+
+                ClientHandler handler = new ClientHandler(clientSocket, clientId);
                 new Thread(handler).start();
             }
 
