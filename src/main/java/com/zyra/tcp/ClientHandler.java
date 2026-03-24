@@ -2,6 +2,7 @@ package com.zyra.tcp;
 
 import com.zyra.parser.Command;
 import com.zyra.parser.CommandParser;
+import com.zyra.store.InMemoryStore;
 
 import java.io.*;
 import java.net.Socket;
@@ -12,6 +13,7 @@ public class ClientHandler implements Runnable {
     private final int clientId;
 
     private final CommandParser parser = new CommandParser();
+    private final InMemoryStore store = InMemoryStore.getInstance();
 
     public ClientHandler(Socket socket, int clientId) {
         this.socket = socket;
@@ -41,12 +43,15 @@ public class ClientHandler implements Runnable {
 
                 Command command = parser.parse(line);
 
+                String response;
+
                 if (command == null) {
-                    writer.write("ERROR: Empty command");
+                    response = "ERROR: Empty command";
                 } else {
-                    writer.write(handleCommand(command));
+                    response = handleCommand(command);
                 }
 
+                writer.write(response);
                 writer.newLine();
                 writer.flush();
             }
@@ -85,8 +90,9 @@ public class ClientHandler implements Runnable {
         String key = command.getArgs().get(0);
         String value = command.getArgs().get(1);
 
-        // No storage yet
-        return "OK (SET parsed): " + key + " = " + value;
+        store.set(key, value);
+
+        return "OK";
     }
 
     private String handleGet(Command command) {
@@ -95,10 +101,10 @@ public class ClientHandler implements Runnable {
             return "ERROR: GET requires key";
         }
 
-        // String key = command.getArgs().get(0);
-        String key = command.getArgs().getFirst();
+        String key = command.getArgs().get(0);
 
-        // No storage yet
-        return "OK (GET parsed): " + key;
+        String value = store.get(key);
+
+        return value != null ? value : "NULL";
     }
 }
