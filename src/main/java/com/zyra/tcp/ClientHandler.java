@@ -3,11 +3,15 @@ package com.zyra.tcp;
 import com.zyra.parser.Command;
 import com.zyra.parser.CommandParser;
 import com.zyra.service.KeyValueService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.io.*;
 import java.net.Socket;
 
 public class ClientHandler implements Runnable {
+
+    private static final Logger log = LoggerFactory.getLogger(ClientHandler.class);
 
     private final Socket socket;
     private final int clientId;
@@ -23,8 +27,7 @@ public class ClientHandler implements Runnable {
     @Override
     public void run() {
 
-        System.out.println("[Client-" + clientId + "] Handling in thread: "
-                + Thread.currentThread().getName());
+        log.info("[Client-{}] Handling in thread: {}", clientId, Thread.currentThread().getName());
 
         try (
                 BufferedReader reader = new BufferedReader(
@@ -39,11 +42,10 @@ public class ClientHandler implements Runnable {
 
             while ((line = reader.readLine()) != null) {
 
-                System.out.println("[Client-" + clientId + "] Raw Input: " + line);
+                log.info("[Client-{}] Raw Input: {}", clientId, line);
 
                 Command command = parser.parse(line);
 
-                // 🔥 Delegate to service layer
                 String response = service.execute(command);
 
                 writer.write(response);
@@ -52,7 +54,7 @@ public class ClientHandler implements Runnable {
             }
 
         } catch (IOException e) {
-            System.out.println("[Client-" + clientId + "] Disconnected");
+            log.info("[Client-{}] Disconnected", clientId);
         } finally {
             try {
                 socket.close();

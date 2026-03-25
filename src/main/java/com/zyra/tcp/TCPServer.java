@@ -1,5 +1,8 @@
 package com.zyra.tcp;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.IOException;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -7,9 +10,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 
 public class TCPServer {
 
+    private static final Logger log = LoggerFactory.getLogger(TCPServer.class);
+
     private final int port;
 
-    // 🔥 Thread-safe client ID generator
     private static final AtomicInteger clientCounter = new AtomicInteger(0);
 
     public TCPServer(int port) {
@@ -17,26 +21,27 @@ public class TCPServer {
     }
 
     public void start() {
-        System.out.println("Starting ZyraDB TCP Server on port " + port);
+
+        log.info("Starting ZyraDB TCP Server on port {}", port);
 
         try (ServerSocket serverSocket = new ServerSocket(port)) {
 
             while (true) {
-                System.out.println("Waiting for client...");
+
+                log.info("Waiting for client...");
 
                 Socket clientSocket = serverSocket.accept();
 
-                // 🔥 Assign unique client ID
                 int clientId = clientCounter.incrementAndGet();
 
-                System.out.println("[Client-" + clientId + "] Connected: " + clientSocket.getInetAddress());
+                log.info("[Client-{}] Connected: {}", clientId, clientSocket.getInetAddress());
 
                 ClientHandler handler = new ClientHandler(clientSocket, clientId);
                 new Thread(handler).start();
             }
 
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Server error", e);
         }
     }
 }
