@@ -3,19 +3,6 @@ package com.zyra.service;
 import com.zyra.parser.Command;
 import com.zyra.store.InMemoryStore;
 
-/*
-    Intuition:
-    ----------
-    Handles business logic for all commands.
-
-    Keeps TCP layer clean and focused only on IO.
-
-    Future:
-        - DELETE
-        - EXPIRE
-        - TTL handling
-*/
-
 public class KeyValueService {
 
     private final InMemoryStore store = InMemoryStore.getInstance();
@@ -34,6 +21,9 @@ public class KeyValueService {
 
             case "GET":
                 return handleGet(command);
+
+            case "DELETE":
+                return handleDelete(command);
 
             default:
                 return "ERROR: Unknown command";
@@ -65,5 +55,19 @@ public class KeyValueService {
         String value = store.get(key);
 
         return value != null ? value : "NULL";
+    }
+
+    // 🔥 NEW
+    private String handleDelete(Command command) {
+
+        if (command.getArgs().size() < 1) {
+            return "ERROR: DELETE requires key";
+        }
+
+        String key = command.getArgs().get(0);
+
+        boolean deleted = store.delete(key);
+
+        return deleted ? "1" : "0";
     }
 }
