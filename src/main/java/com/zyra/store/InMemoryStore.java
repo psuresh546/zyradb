@@ -69,6 +69,7 @@ public class InMemoryStore {
     // TTL key  (Redis semantics)
     // ----------------------------------------------------
     public long ttl(String key) {
+
         if (!data.containsKey(key)) {
             return -2;
         }
@@ -79,14 +80,15 @@ public class InMemoryStore {
             return -1;
         }
 
-        long remainingMillis = expireAt - System.currentTimeMillis();
+        long millisLeft = expireAt - System.currentTimeMillis();
 
-        if (remainingMillis <= 0) {
+        if (millisLeft <= 0) {
             delete(key);
             return -2;
         }
 
-        return remainingMillis / 1000;
+        // ceil instead of floor
+        return (millisLeft + 999) / 1000;
     }
 
     // ----------------------------------------------------
