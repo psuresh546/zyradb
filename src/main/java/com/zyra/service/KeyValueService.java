@@ -3,6 +3,8 @@ package com.zyra.service;
 import com.zyra.parser.Command;
 import com.zyra.store.InMemoryStore;
 
+import java.util.List;
+
 public class KeyValueService {
 
     private final InMemoryStore store = InMemoryStore.getInstance();
@@ -25,30 +27,26 @@ public class KeyValueService {
 
     private String handleSet(Command command) {
 
-        if (command.getArgs().size() < 2) {
-            return "ERROR: SET requires key and value";
+        List<String> args = command.getArgs();
+
+        if (args.size() != 2 && args.size() != 4) {
+            return "ERROR: SET syntax -> SET key value [EX seconds]";
         }
 
-        String key = command.getArgs().get(0);
-        String value = command.getArgs().get(1);
+        String key = args.get(0);
+        String value = args.get(1);
 
         long ttl = -1;
 
-        if (command.getArgs().size() > 2) {
+        if (args.size() == 4) {
 
-            if (command.getArgs().size() != 4) {
-                return "ERROR: Use: SET key value EX seconds";
-            }
-
-            if (!command.getArgs().get(2).equalsIgnoreCase("EX")) {
-                return "ERROR: Unsupported SET option";
+            if (!args.get(2).equalsIgnoreCase("EX")) {
+                return "ERROR: Only EX supported";
             }
 
             try {
-                ttl = Long.parseLong(command.getArgs().get(3));
-                if (ttl <= 0) {
-                    return "ERROR: Expiry must be positive";
-                }
+                ttl = Long.parseLong(args.get(3));
+                if (ttl <= 0) return "ERROR: Expiry must be > 0";
             } catch (NumberFormatException e) {
                 return "ERROR: Invalid expiry seconds";
             }

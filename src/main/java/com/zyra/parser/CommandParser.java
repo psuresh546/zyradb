@@ -1,36 +1,33 @@
 package com.zyra.parser;
 
-import java.util.Arrays;
-import java.util.Collections;
+import java.util.ArrayList;
 import java.util.List;
-
-/*
-    Intuition:
-    ----------
-    Converts raw string input into a Command object.
-
-    Handles:
-        - Trimming
-        - Splitting
-        - Uppercasing command name
-*/
 
 public class CommandParser {
 
     public Command parse(String input) {
 
-        if (input == null || input.trim().isEmpty()) {
+        if (input == null || input.isBlank()) {
             return null;
         }
 
         String[] tokens = input.trim().split("\\s+");
 
-        String commandName = tokens[0].toUpperCase();
+        String rawName = tokens[0].toUpperCase();
 
-        List<String> args = tokens.length > 1
-                ? Arrays.asList(tokens).subList(1, tokens.length)
-                : Collections.emptyList();
+        // ---- Aliases ----
+        String name = switch (rawName) {
+            case "DELETE" -> "DEL";
+            case "QUIT", "EXIT" -> "EXIT";
+            default -> rawName;
+        };
 
-        return new Command(commandName, args);
+        List<String> args = new ArrayList<>();
+
+        for (int i = 1; i < tokens.length; i++) {
+            args.add(tokens[i]);
+        }
+
+        return new Command(name, args);
     }
 }

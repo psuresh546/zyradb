@@ -31,13 +31,16 @@ public class InMemoryStore {
     }
 
     // ----------------------------------------------------
-    // GET key (auto-remove if expired)
+    // GET key (atomic expiry check)
     // ----------------------------------------------------
     public String get(String key) {
-        if (isExpired(key)) {
+        Long expireAt = expiry.get(key);
+
+        if (expireAt != null && System.currentTimeMillis() > expireAt) {
             delete(key);
             return null;
         }
+
         return data.get(key);
     }
 
@@ -66,46 +69,42 @@ public class InMemoryStore {
     // TTL key  (Redis semantics)
     // ----------------------------------------------------
     public long ttl(String key) {
-
         if (!data.containsKey(key)) {
-            return -2; // key not exist
+            return -2;
         }
 
-        if (!expiry.containsKey(key)) {
-            return -1; // no expiry
+        Long expireAt = expiry.get(key);
+
+        if (expireAt == null) {
+            return -1;
         }
 
-        long remaining = (expiry.get(key) - System.currentTimeMillis()) / 1000;
+        long remainingMillis = expireAt - System.currentTimeMillis();
 
-        if (remaining <= 0) {
+        if (remainingMillis <= 0) {
             delete(key);
             return -2;
         }
 
-        return remaining;
+        return remainingMillis / 1000;
     }
 
     // ----------------------------------------------------
-    private boolean isExpired(String key) {
-        if (!expiry.containsKey(key)) return false;
-        return System.currentTimeMillis() > expiry.get(key);
-    }
-
+    // ACTIVE CLEANUP (used by ExpiryScheduler)
     // ----------------------------------------------------
-// ACTIVE CLEANUP (used by ExpiryScheduler)
-// ----------------------------------------------------
     public int cleanupExpiredKeys() {
         int cleaned = 0;
-
         long now = System.currentTimeMillis();
 
-        for (String key : expiry.keySet()) {
-            Long expireAt = expiry.get(key);
+        for (Map.Entry<String, Long> entry : expiry.entrySet()) {
+            String key = entry.getKey();
+            Long expireAt = entry.getValue();
 
             if (expireAt != null && now > expireAt) {
-                data.remove(key);
-                expiry.remove(key);
-                cleaned++;
+                if (expiry.remove(key, expireAt)) {
+                    data.remove(key);
+                    cleaned++;
+                }
             }
         }
 
