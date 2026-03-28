@@ -16,8 +16,8 @@ public class ClientHandler implements Runnable {
     private final Socket socket;
     private final int clientId;
 
-    private final CommandParser parser = new CommandParser();
     private final KeyValueService service = new KeyValueService();
+    private final CommandParser parser = new CommandParser(); // ✅
 
     public ClientHandler(Socket socket, int clientId) {
         this.socket = socket;
@@ -26,39 +26,36 @@ public class ClientHandler implements Runnable {
 
     @Override
     public void run() {
+        log.info("[Client-{}] Thread started: {}", clientId, Thread.currentThread().getName());
 
-        log.info("[Client-{}] Handling in thread: {}", clientId, Thread.currentThread().getName());
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+             PrintWriter writer = new PrintWriter(socket.getOutputStream(), true)) {
 
-        try (
-                BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(socket.getInputStream())
-                );
-                BufferedWriter writer = new BufferedWriter(
-                        new OutputStreamWriter(socket.getOutputStream())
-                )
-        ) {
+            String input;
+            CommandParser parser = new CommandParser();
 
-            String line;
+            while ((input = reader.readLine()) != null) {
 
-            while ((line = reader.readLine()) != null) {
+                input = input.trim();
+                log.info("[Client-{}] Input: {}", clientId, input);
 
-                log.info("[Client-{}] Raw Input: {}", clientId, line);
+                // ✅ Connection commands
+                if (input.equalsIgnoreCase("EXIT") || input.equalsIgnoreCase("QUIT")) {
+                    writer.println("BYE");
+                    break;
+                }
 
-                Command command = parser.parse(line);
-
-                String response = service.execute(command);
-
-                writer.write(response);
-                writer.newLine();
-                writer.flush();
+                try {
+                    Command command = parser.parse(input);
+                    String response = service.execute(command);
+                    writer.println(response);
+                } catch (Exception e) {
+                    writer.println("ERROR: " + e.getMessage());
+                }
             }
 
-        } catch (IOException e) {
-            log.info("[Client-{}] Disconnected", clientId);
-        } finally {
-            try {
-                socket.close();
-            } catch (IOException ignored) {}
+        } catch (Exception e) {
+            log.error("[Client-{}] Error: {}", clientId, e.getMessage());
         }
     }
 }

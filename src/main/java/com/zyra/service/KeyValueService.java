@@ -13,24 +13,14 @@ public class KeyValueService {
             return "ERROR: Empty command";
         }
 
-        String name = command.getName();
-
-        switch (name) {
-            case "SET":
-                return handleSet(command);
-
-            case "GET":
-                return handleGet(command);
-
-            case "DELETE":
-                return handleDelete(command);
-
-            case "EXPIRE":
-                return handleExpire(command);
-
-            default:
-                return "ERROR: Unknown command";
-        }
+        return switch (command.getName()) {
+            case "SET" -> handleSet(command);
+            case "GET" -> handleGet(command);
+            case "DEL" , "DELETE" -> handleDelete(command);
+            case "EXPIRE" -> handleExpire(command);
+            case "TTL" -> handleTTL(command);
+            default -> "ERROR: Unknown command";
+        };
     }
 
     private String handleSet(Command command) {
@@ -42,77 +32,73 @@ public class KeyValueService {
         String key = command.getArgs().get(0);
         String value = command.getArgs().get(1);
 
-        // Default: no expiry
-        long expirySeconds = -1;
+        long ttl = -1;
 
-        // Check for EX option
-        if (command.getArgs().size() == 4) {
+        if (command.getArgs().size() > 2) {
 
-            String option = command.getArgs().get(2);
+            if (command.getArgs().size() != 4) {
+                return "ERROR: Use: SET key value EX seconds";
+            }
 
-            if (!option.equalsIgnoreCase("EX")) {
-                return "ERROR: Unsupported option";
+            if (!command.getArgs().get(2).equalsIgnoreCase("EX")) {
+                return "ERROR: Unsupported SET option";
             }
 
             try {
-                expirySeconds = Long.parseLong(command.getArgs().get(3));
+                ttl = Long.parseLong(command.getArgs().get(3));
+                if (ttl <= 0) {
+                    return "ERROR: Expiry must be positive";
+                }
             } catch (NumberFormatException e) {
-                return "ERROR: Invalid expiry value";
+                return "ERROR: Invalid expiry seconds";
             }
         }
 
-        if (expirySeconds > 0) {
-            store.setWithExpiry(key, value, expirySeconds);
-        } else {
-            store.set(key, value);
-        }
-
+        store.set(key, value, ttl);
         return "OK";
     }
 
     private String handleGet(Command command) {
-        if (command.getArgs().size() < 1) {
+        if (command.getArgs().size() != 1) {
             return "ERROR: GET requires key";
         }
 
-        String key = command.getArgs().get(0);
-
-        String value = store.get(key);
-
-        return value != null ? value : "NULL";
+        String val = store.get(command.getArgs().get(0));
+        return val == null ? "NULL" : val;
     }
 
     private String handleDelete(Command command) {
-        if (command.getArgs().size() < 1) {
-            return "ERROR: DELETE requires key";
+        if (command.getArgs().size() != 1) {
+            return "ERROR: DEL requires key";
         }
 
-        String key = command.getArgs().get(0);
-
-        boolean deleted = store.delete(key);
-
-        return deleted ? "1" : "0";
+        return store.delete(command.getArgs().get(0)) ? "1" : "0";
     }
 
-    // 🔥 NEW
     private String handleExpire(Command command) {
 
-        if (command.getArgs().size() < 2) {
+        if (command.getArgs().size() != 2) {
             return "ERROR: EXPIRE requires key and seconds";
         }
 
-        String key = command.getArgs().get(0);
-
-        long seconds;
-
         try {
-            seconds = Long.parseLong(command.getArgs().get(1));
+            long seconds = Long.parseLong(command.getArgs().get(1));
+            if (seconds <= 0) {
+                return "ERROR: Expiry must be positive";
+            }
+
+            return store.expire(command.getArgs().get(0), seconds) ? "1" : "0";
+
         } catch (NumberFormatException e) {
             return "ERROR: Invalid seconds value";
         }
+    }
 
-        boolean success = store.expire(key, seconds);
+    private String handleTTL(Command command) {
+        if (command.getArgs().size() != 1) {
+            return "ERROR: TTL requires key";
+        }
 
-        return success ? "1" : "0";
+        return String.valueOf(store.ttl(command.getArgs().get(0)));
     }
 }

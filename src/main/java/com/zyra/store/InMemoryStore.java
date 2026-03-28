@@ -1,30 +1,14 @@
 package com.zyra.store;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
-/*
-    Intuition:
-    ----------
-    Central storage for all key-value pairs.
-
-    Enhanced with:
-        - Structured logging (SLF4J)
-        - TTL lifecycle visibility
-        - Safe for concurrent access (clients + scheduler)
-*/
-
 public class InMemoryStore {
 
-    private static final Logger log = LoggerFactory.getLogger(InMemoryStore.class);
-
-    // ✅ Thread-safe map
-    private final Map<String, CacheEntry> store = new ConcurrentHashMap<>();
-
     private static final InMemoryStore INSTANCE = new InMemoryStore();
+
+    private final Map<String, String> data = new ConcurrentHashMap<>();
+    private final Map<String, Long> expiry = new ConcurrentHashMap<>();
 
     private InMemoryStore() {}
 
@@ -32,75 +16,99 @@ public class InMemoryStore {
         return INSTANCE;
     }
 
-    public void set(String key, String value) {
-        store.put(key, new CacheEntry(value));
-        log.info("[STORE] SET key={} value={} ttl=none", key, value);
+    // ----------------------------------------------------
+    // SET key value ttlSeconds (-1 means no expiry)
+    // ----------------------------------------------------
+    public void set(String key, String value, long ttlSeconds) {
+        data.put(key, value);
+
+        if (ttlSeconds > 0) {
+            long expireAt = System.currentTimeMillis() + (ttlSeconds * 1000);
+            expiry.put(key, expireAt);
+        } else {
+            expiry.remove(key);
+        }
     }
 
-    public void setWithExpiry(String key, String value, long seconds) {
-        CacheEntry entry = new CacheEntry(value);
-        long expiryTime = System.currentTimeMillis() + (seconds * 1000);
-        entry.setExpiryTime(expiryTime);
-
-        store.put(key, entry);
-        log.info("[STORE] SET key={} value={} ttl={}s", key, value, seconds);
-    }
-
+    // ----------------------------------------------------
+    // GET key (auto-remove if expired)
+    // ----------------------------------------------------
     public String get(String key) {
-
-        CacheEntry entry = store.get(key);
-
-        if (entry == null) {
-            log.info("[STORE] GET key={} → MISS", key);
+        if (isExpired(key)) {
+            delete(key);
             return null;
         }
-
-        // Lazy expiration
-        if (entry.isExpired()) {
-            store.remove(key);
-            log.info("[STORE] EXPIRED key={} (lazy)", key);
-            return null;
-        }
-
-        log.info("[STORE] GET key={} → HIT", key);
-        return entry.getValue();
+        return data.get(key);
     }
 
+    // ----------------------------------------------------
+    // DELETE key
+    // ----------------------------------------------------
     public boolean delete(String key) {
-        boolean removed = store.remove(key) != null;
-        log.info("[STORE] DELETE key={} → {}", key, removed ? "SUCCESS" : "NOT_FOUND");
-        return removed;
+        expiry.remove(key);
+        return data.remove(key) != null;
     }
 
+    // ----------------------------------------------------
+    // EXPIRE key seconds
+    // ----------------------------------------------------
     public boolean expire(String key, long seconds) {
-
-        CacheEntry entry = store.get(key);
-
-        if (entry == null) {
-            log.info("[STORE] EXPIRE key={} → NOT_FOUND", key);
+        if (!data.containsKey(key)) {
             return false;
         }
 
-        long expiryTime = System.currentTimeMillis() + (seconds * 1000);
-        entry.setExpiryTime(expiryTime);
-
-        log.info("[STORE] EXPIRE key={} ttl={}s", key, seconds);
+        long expireAt = System.currentTimeMillis() + (seconds * 1000);
+        expiry.put(key, expireAt);
         return true;
     }
 
-    // ✅ Used by scheduler thread
-    public int cleanupExpiredKeys() {
-        int removed = 0;
+    // ----------------------------------------------------
+    // TTL key  (Redis semantics)
+    // ----------------------------------------------------
+    public long ttl(String key) {
 
-        for (Map.Entry<String, CacheEntry> entry : store.entrySet()) {
-            if (entry.getValue().isExpired()) {
-                if (store.remove(entry.getKey()) != null) {
-                    removed++;
-                    log.info("[STORE] EXPIRED key={} (active cleanup)", entry.getKey());
-                }
+        if (!data.containsKey(key)) {
+            return -2; // key not exist
+        }
+
+        if (!expiry.containsKey(key)) {
+            return -1; // no expiry
+        }
+
+        long remaining = (expiry.get(key) - System.currentTimeMillis()) / 1000;
+
+        if (remaining <= 0) {
+            delete(key);
+            return -2;
+        }
+
+        return remaining;
+    }
+
+    // ----------------------------------------------------
+    private boolean isExpired(String key) {
+        if (!expiry.containsKey(key)) return false;
+        return System.currentTimeMillis() > expiry.get(key);
+    }
+
+    // ----------------------------------------------------
+// ACTIVE CLEANUP (used by ExpiryScheduler)
+// ----------------------------------------------------
+    public int cleanupExpiredKeys() {
+        int cleaned = 0;
+
+        long now = System.currentTimeMillis();
+
+        for (String key : expiry.keySet()) {
+            Long expireAt = expiry.get(key);
+
+            if (expireAt != null && now > expireAt) {
+                data.remove(key);
+                expiry.remove(key);
+                cleaned++;
             }
         }
 
-        return removed;
+        return cleaned;
     }
 }

@@ -14,6 +14,7 @@ public class TCPServer {
 
     private final int port;
 
+    // Only responsibility: track clients
     private static final AtomicInteger clientCounter = new AtomicInteger(0);
 
     public TCPServer(int port) {
@@ -28,20 +29,18 @@ public class TCPServer {
 
             while (true) {
 
-                log.info("Waiting for client...");
-
                 Socket clientSocket = serverSocket.accept();
-
                 int clientId = clientCounter.incrementAndGet();
 
-                log.info("[Client-{}] Connected: {}", clientId, clientSocket.getInetAddress());
+                log.info("[Client-{}] Connected from {}",
+                        clientId, clientSocket.getInetAddress());
 
-                ClientHandler handler = new ClientHandler(clientSocket, clientId);
-                new Thread(handler).start();
+                // ✅ TCPServer does NOT know about Store or Service
+                new Thread(new ClientHandler(clientSocket, clientId)).start();
             }
 
         } catch (IOException e) {
-            log.error("Server error", e);
+            log.error("TCP Server error", e);
         }
     }
 }
