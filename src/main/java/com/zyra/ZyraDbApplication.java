@@ -14,6 +14,15 @@ import org.springframework.context.annotation.Bean;
 public class ZyraDbApplication {
 
     public static void main(String[] args) {
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            System.out.println("Shutdown detected. Flushing snapshot and closing WAL.");
+
+            InMemoryStore store = InMemoryStore.getInstance();
+            SnapshotManager.save(store.snapshot());
+            WriteAheadLog.reset();
+            WriteAheadLog.close();
+        }, "zyra-shutdown"));
+
         SpringApplication.run(ZyraDbApplication.class, args);
     }
 

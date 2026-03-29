@@ -50,4 +50,13 @@ class KeyValueServiceTest {
                 service.execute(new Command("SET", List.of("a", "b", "EX")))
         );
     }
+
+    @Test
+    void infoReportsKeyCountAndUptime() {
+        service.execute(new Command("SET", List.of("name", "zyra")));
+
+        String info = service.execute(new Command("INFO", List.of()));
+
+        assertEquals(true, info.startsWith("INFO keys=1 uptime="));
+    }
 }

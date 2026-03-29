@@ -117,6 +117,11 @@ public class InMemoryStore {
         return new HashMap<>(store);
     }
 
+    public int size() {
+        cleanupExpiredKeys();
+        return store.size();
+    }
+
     public void clear() {
         store.clear();
     }

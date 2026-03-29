@@ -54,4 +54,14 @@ class WriteAheadLogTest {
         assertEquals("42", store.get("alive"));
         assertNull(store.get("gone"));
     }
+
+    @Test
+    void replaySkipsCorruptedLinesAndContinues() throws Exception {
+        Files.writeString(WAL_PATH, "SET|%%%|%%%|oops\nSET|YWxpdmU=|NDI=|-1\n");
+
+        store.clear();
+        WriteAheadLog.replay(store);
+
+        assertEquals("42", store.get("alive"));
+    }
 }

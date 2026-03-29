@@ -1,6 +1,7 @@
 package com.zyra.service;
 
 import com.zyra.parser.Command;
+import com.zyra.scheduler.ExpiryScheduler;
 import com.zyra.store.InMemoryStore;
 import com.zyra.store.WriteAheadLog;
 import org.springframework.stereotype.Service;
@@ -30,6 +31,7 @@ public class KeyValueService {
             case "DEL", "DELETE" -> handleDelete(command);
             case "EXPIRE", "EXP", "EX" -> handleExpire(command);
             case "TTL" -> handleTTL(command);
+            case "INFO" -> handleInfo(command);
             case "QUIT", "EXIT" -> "BYE";
             default -> "ERR unknown command";
         };
@@ -153,5 +155,13 @@ public class KeyValueService {
 
         long ttl = store.ttl(command.getArgs().get(0));
         return "INT " + ttl;
+    }
+
+    private String handleInfo(Command command) {
+        if (!command.getArgs().isEmpty()) {
+            return "ERR INFO does not accept arguments";
+        }
+
+        return "INFO keys=" + store.size() + " uptime=" + ExpiryScheduler.uptimeSeconds();
     }
 }

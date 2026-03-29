@@ -75,7 +75,11 @@ public class WriteAheadLog {
 
             String line;
             while ((line = reader.readLine()) != null) {
-                replayLine(line, store);
+                try {
+                    replayLine(line, store);
+                } catch (RuntimeException e) {
+                    System.err.println("Skipping corrupted WAL entry: " + line);
+                }
             }
 
         } catch (IOException e) {
@@ -83,7 +87,7 @@ public class WriteAheadLog {
         }
     }
 
-    public static synchronized void truncate() {
+    public static synchronized void reset() {
         close();
 
         try {
@@ -98,6 +102,10 @@ public class WriteAheadLog {
         } catch (IOException e) {
             throw new RuntimeException("WAL truncate failed", e);
         }
+    }
+
+    public static synchronized void truncate() {
+        reset();
     }
 
     private static void replayLine(String line, InMemoryStore store) {
@@ -141,14 +149,20 @@ public class WriteAheadLog {
         }
     }
 
-    private static synchronized void close() {
+    public static synchronized void close() {
         try {
             if (writer != null) {
                 writer.close();
             }
+        } catch (IOException ignored) {
+        }
+        try {
             if (channel != null) {
                 channel.close();
             }
+        } catch (IOException ignored) {
+        }
+        try {
             if (fos != null) {
                 fos.close();
             }
