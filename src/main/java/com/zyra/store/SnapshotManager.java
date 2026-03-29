@@ -1,75 +1,98 @@
 package com.zyra.store;
 
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
-import java.io.File;
-import java.io.FileReader;
-import java.io.FileWriter;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
+import java.nio.file.StandardOpenOption;
 import java.util.Base64;
 import java.util.Map;
 
 public class SnapshotManager {
 
-    private static final Logger log = LoggerFactory.getLogger(SnapshotManager.class);
     private static final String SNAPSHOT_FILE = "zyra.snapshot";
-
-    private SnapshotManager() {
-    }
+    private static final String TEMP_FILE = "zyra.snapshot.tmp";
 
     public static void save(Map<String, InMemoryStore.ValueWrapper> data) {
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(SNAPSHOT_FILE))) {
-            for (Map.Entry<String, InMemoryStore.ValueWrapper> entry : data.entrySet()) {
-                String key = encode(entry.getKey());
-                String value = encode(entry.getValue().getValue());
-                long expiryTime = entry.getValue().getExpiryTime();
+        Path tempPath = Paths.get(TEMP_FILE);
+        Path finalPath = Paths.get(SNAPSHOT_FILE);
 
-                writer.write(key + "|" + value + "|" + expiryTime);
+        try (BufferedWriter writer = Files.newBufferedWriter(
+                tempPath,
+                StandardCharsets.UTF_8,
+                StandardOpenOption.CREATE,
+                StandardOpenOption.TRUNCATE_EXISTING)) {
+            long now = System.currentTimeMillis();
+
+            for (Map.Entry<String, InMemoryStore.ValueWrapper> entry : data.entrySet()) {
+                InMemoryStore.ValueWrapper value = entry.getValue();
+
+                if (value.getExpiryTime() != -1 && value.getExpiryTime() <= now) {
+                    continue;
+                }
+
+                writer.write(encode(entry.getKey()) + "|" +
+                        encode(value.getValue()) + "|" +
+                        value.getExpiryTime());
                 writer.newLine();
             }
 
-            log.info("Snapshot saved with {} keys", data.size());
+            writer.flush();
         } catch (IOException e) {
-            log.error("Error saving snapshot", e);
+            e.printStackTrace();
+            return;
+        }
+
+        try {
+            Files.move(tempPath, finalPath,
+                    StandardCopyOption.REPLACE_EXISTING,
+                    StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException e) {
+            try {
+                Files.move(tempPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException moveException) {
+                moveException.printStackTrace();
+            }
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
     public static void load(InMemoryStore store) {
-        File file = new File(SNAPSHOT_FILE);
-        if (!file.exists()) {
-            return;
-        }
+        Path path = Paths.get(SNAPSHOT_FILE);
+        if (!Files.exists(path)) return;
 
-        try (BufferedReader reader = new BufferedReader(new FileReader(file))) {
+        try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
                 String[] parts = line.split("\\|", 3);
-                if (parts.length != 3) {
-                    log.warn("Skipping malformed snapshot entry");
-                    continue;
+                if (parts.length != 3) continue;
+
+                try {
+                    store.restore(
+                            decode(parts[0]),
+                            decode(parts[1]),
+                            Long.parseLong(parts[2])
+                    );
+                } catch (RuntimeException e) {
+                    // Skip malformed snapshot lines and continue loading the rest.
                 }
-
-                String key = decode(parts[0]);
-                String value = decode(parts[1]);
-                long expiry = Long.parseLong(parts[2]);
-
-                store.restore(key, value, expiry);
             }
-
-            log.info("Snapshot loaded");
-        } catch (IOException | IllegalArgumentException e) {
-            log.error("Error loading snapshot", e);
+        } catch (IOException e) {
+            e.printStackTrace();
         }
     }
 
     private static String encode(String value) {
-        return Base64.getEncoder().encodeToString(value.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String decode(String value) {
-        return new String(Base64.getDecoder().decode(value), java.nio.charset.StandardCharsets.UTF_8);
+        return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
     }
 }
