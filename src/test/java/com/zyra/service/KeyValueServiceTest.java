@@ -11,8 +11,8 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 
 class KeyValueServiceTest {
 
-    private final KeyValueService service = new KeyValueService();
     private final InMemoryStore store = InMemoryStore.getInstance();
+    private final KeyValueService service = new KeyValueService(store);
 
     @BeforeEach
     void setUp() {

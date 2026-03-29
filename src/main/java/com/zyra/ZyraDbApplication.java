@@ -18,19 +18,17 @@ public class ZyraDbApplication {
     }
 
     @Bean
-    public CommandLineRunner init() {
-        return args -> {
-            InMemoryStore store = InMemoryStore.getInstance();
+    public InMemoryStore inMemoryStore() {
+        return InMemoryStore.getInstance();
+    }
 
-            // 1. Restore data before accepting traffic
+    @Bean
+    public CommandLineRunner init(InMemoryStore store, TCPServer tcpServer) {
+        return args -> {
             SnapshotManager.load(store);
             WriteAheadLog.replay(store);
-
-            // 2. Start expiry scheduler
             ExpiryScheduler.start(store);
-
-            // 3. Start TCP server
-            new TCPServer(6379).start();
+            tcpServer.start();
         };
     }
 }

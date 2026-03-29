@@ -3,6 +3,7 @@ package com.zyra.tcp;
 import com.zyra.parser.Command;
 import com.zyra.parser.CommandParser;
 import com.zyra.service.KeyValueService;
+import com.zyra.store.InMemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -22,16 +23,22 @@ public class ClientHandler implements Runnable {
     private final int clientId;
     private final Runnable onDisconnect;
 
-    private final KeyValueService service = new KeyValueService();
-    private final CommandParser parser = new CommandParser();
+    private final KeyValueService service;
+    private final CommandParser parser;
 
     public ClientHandler(Socket socket, int clientId) {
-        this(socket, clientId, () -> { });
+        this(socket, clientId, new KeyValueService(InMemoryStore.getInstance()), new CommandParser(), () -> { });
     }
 
     public ClientHandler(Socket socket, int clientId, Runnable onDisconnect) {
+        this(socket, clientId, new KeyValueService(InMemoryStore.getInstance()), new CommandParser(), onDisconnect);
+    }
+
+    public ClientHandler(Socket socket, int clientId, KeyValueService service, CommandParser parser, Runnable onDisconnect) {
         this.socket = socket;
         this.clientId = clientId;
+        this.service = service;
+        this.parser = parser;
         this.onDisconnect = onDisconnect;
     }
 

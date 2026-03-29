@@ -4,9 +4,12 @@ import com.zyra.store.InMemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class ExpiryScheduler implements Runnable {
 
     private static final Logger log = LoggerFactory.getLogger(ExpiryScheduler.class);
+    private static final AtomicBoolean STARTED = new AtomicBoolean(false);
     private final InMemoryStore store;
 
     public ExpiryScheduler(InMemoryStore store) {
@@ -14,6 +17,10 @@ public class ExpiryScheduler implements Runnable {
     }
 
     public static void start(InMemoryStore store) {
+        if (!STARTED.compareAndSet(false, true)) {
+            return;
+        }
+
         Thread schedulerThread = new Thread(new ExpiryScheduler(store), "zyra-expiry-scheduler");
         schedulerThread.setDaemon(true);
         schedulerThread.start();

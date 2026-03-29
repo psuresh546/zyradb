@@ -1,8 +1,11 @@
 package com.zyra.parser;
 
+import org.springframework.stereotype.Component;
+
 import java.util.ArrayList;
 import java.util.List;
 
+@Component
 public class CommandParser {
 
     public Command parse(String input) {

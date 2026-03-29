@@ -3,12 +3,18 @@ package com.zyra.service;
 import com.zyra.parser.Command;
 import com.zyra.store.InMemoryStore;
 import com.zyra.store.WriteAheadLog;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 
+@Service
 public class KeyValueService {
 
-    private final InMemoryStore store = InMemoryStore.getInstance();
+    private final InMemoryStore store;
+
+    public KeyValueService(InMemoryStore store) {
+        this.store = store;
+    }
 
     public String execute(Command command) {
 
