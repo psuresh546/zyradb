@@ -2,6 +2,7 @@ HELP.md
 target/
 .m2repo/
 zyra.snapshot
+zyra.wal
 .DS_Store
 *.log
 .mvn/wrapper/maven-wrapper.jar

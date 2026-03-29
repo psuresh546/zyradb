@@ -7,9 +7,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.io.BufferedReader;
+import java.io.BufferedWriter;
 import java.io.InputStreamReader;
+import java.io.OutputStreamWriter;
 import java.io.PrintWriter;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 
 public class ClientHandler implements Runnable {
 
@@ -17,13 +20,19 @@ public class ClientHandler implements Runnable {
 
     private final Socket socket;
     private final int clientId;
+    private final Runnable onDisconnect;
 
     private final KeyValueService service = new KeyValueService();
     private final CommandParser parser = new CommandParser();
 
     public ClientHandler(Socket socket, int clientId) {
+        this(socket, clientId, () -> { });
+    }
+
+    public ClientHandler(Socket socket, int clientId, Runnable onDisconnect) {
         this.socket = socket;
         this.clientId = clientId;
+        this.onDisconnect = onDisconnect;
     }
 
     @Override
@@ -33,8 +42,11 @@ public class ClientHandler implements Runnable {
 
         try (
                 BufferedReader reader = new BufferedReader(
-                        new InputStreamReader(socket.getInputStream()));
-                PrintWriter writer = new PrintWriter(socket.getOutputStream(), true)
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                PrintWriter writer = new PrintWriter(
+                        new BufferedWriter(
+                                new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8)),
+                        true)
         ) {
 
             String input;
@@ -55,7 +67,6 @@ public class ClientHandler implements Runnable {
 
                     writer.println(response);
 
-                    // ✅ Proper connection termination
                     if ("BYE".equals(response)) {
                         log.info("[Client-{}] Connection closed by client command", clientId);
                         break;
@@ -72,7 +83,9 @@ public class ClientHandler implements Runnable {
         } finally {
             try {
                 socket.close();
-            } catch (Exception ignored) {}
+            } catch (Exception ignored) {
+            }
+            onDisconnect.run();
         }
 
         log.info("[Client-{}] Thread terminated", clientId);

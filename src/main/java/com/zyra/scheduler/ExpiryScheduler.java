@@ -13,6 +13,12 @@ public class ExpiryScheduler implements Runnable {
         this.store = store;
     }
 
+    public static void start(InMemoryStore store) {
+        Thread schedulerThread = new Thread(new ExpiryScheduler(store), "zyra-expiry-scheduler");
+        schedulerThread.setDaemon(true);
+        schedulerThread.start();
+    }
+
     @Override
     public void run() {
         while (true) {

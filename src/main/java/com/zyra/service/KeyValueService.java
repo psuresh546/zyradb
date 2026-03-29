@@ -2,6 +2,7 @@ package com.zyra.service;
 
 import com.zyra.parser.Command;
 import com.zyra.store.InMemoryStore;
+import com.zyra.store.WriteAheadLog;
 
 import java.util.List;
 
@@ -65,6 +66,9 @@ public class KeyValueService {
             }
         }
 
+        // -------- WAL FIRST (very important) --------
+        WriteAheadLog.log(command.getRaw());
+
         store.set(key, value, ttl);
         return "OK";
     }
@@ -91,6 +95,9 @@ public class KeyValueService {
             return "ERR DEL requires key";
         }
 
+        // -------- WAL FIRST --------
+        WriteAheadLog.log(command.getRaw());
+
         boolean deleted = store.delete(command.getArgs().get(0));
         return "INT " + (deleted ? 1 : 0);
     }
@@ -109,6 +116,9 @@ public class KeyValueService {
             if (seconds <= 0) {
                 return "ERR seconds must be > 0";
             }
+
+            // -------- WAL FIRST --------
+            WriteAheadLog.log(command.getRaw());
 
             boolean success = store.expire(command.getArgs().get(0), seconds);
             return "INT " + (success ? 1 : 0);

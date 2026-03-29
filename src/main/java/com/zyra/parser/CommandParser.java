@@ -28,6 +28,6 @@ public class CommandParser {
             args.add(tokens[i]);
         }
 
-        return new Command(name, args);
+        return new Command(input.trim(), name, args);
     }
 }
