@@ -12,6 +12,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Base64;
 
 public class WriteAheadLog {
 
@@ -38,10 +39,22 @@ public class WriteAheadLog {
         );
     }
 
-    public static synchronized void log(String commandLine) {
+    public static synchronized void logSet(String key, String value, long expiryTime) {
         try {
             init();
-            writer.write(commandLine);
+            writer.write("SET|" + encode(key) + "|" + encode(value) + "|" + expiryTime);
+            writer.newLine();
+            writer.flush();
+            channel.force(true);
+        } catch (IOException e) {
+            throw new RuntimeException("WAL write failed", e);
+        }
+    }
+
+    public static synchronized void logDelete(String key) {
+        try {
+            init();
+            writer.write("DEL|" + encode(key));
             writer.newLine();
             writer.flush();
             channel.force(true);
@@ -62,7 +75,7 @@ public class WriteAheadLog {
 
             String line;
             while ((line = reader.readLine()) != null) {
-                CommandExecutor.replay(line, store);
+                replayLine(line, store);
             }
 
         } catch (IOException e) {
@@ -87,6 +100,47 @@ public class WriteAheadLog {
         }
     }
 
+    private static void replayLine(String line, InMemoryStore store) {
+        String[] parts = line.split("\\|", 4);
+        if (parts.length == 0) {
+            return;
+        }
+
+        switch (parts[0]) {
+            case "SET" -> replaySet(parts, store);
+            case "DEL" -> replayDelete(parts, store);
+            default -> CommandExecutor.replay(line, store);
+        }
+    }
+
+    private static void replaySet(String[] parts, InMemoryStore store) {
+        if (parts.length != 4) {
+            return;
+        }
+
+        try {
+            store.restore(
+                    decode(parts[1]),
+                    decode(parts[2]),
+                    Long.parseLong(parts[3])
+            );
+        } catch (IllegalArgumentException e) {
+            // Ignore malformed WAL lines and continue replaying the rest.
+        }
+    }
+
+    private static void replayDelete(String[] parts, InMemoryStore store) {
+        if (parts.length < 2) {
+            return;
+        }
+
+        try {
+            store.delete(decode(parts[1]));
+        } catch (IllegalArgumentException e) {
+            // Ignore malformed WAL lines and continue replaying the rest.
+        }
+    }
+
     private static synchronized void close() {
         try {
             if (writer != null) {
@@ -103,5 +157,13 @@ public class WriteAheadLog {
         writer = null;
         channel = null;
         fos = null;
+    }
+
+    private static String encode(String value) {
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String decode(String value) {
+        return new String(Base64.getDecoder().decode(value), StandardCharsets.UTF_8);
     }
 }

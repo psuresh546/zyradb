@@ -30,7 +30,7 @@ public class ZyraDbApplication {
             ExpiryScheduler.start(store);
 
             // 3. Start TCP server
-            new Thread(() -> new TCPServer(6379).start()).start();
+            new TCPServer(6379).start();
         };
     }
 }

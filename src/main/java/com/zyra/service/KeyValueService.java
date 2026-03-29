@@ -66,8 +66,11 @@ public class KeyValueService {
             }
         }
 
-        // -------- WAL FIRST (very important) --------
-        WriteAheadLog.log(command.getRaw());
+        long expiryTime = ttl > 0
+                ? System.currentTimeMillis() + (ttl * 1000)
+                : -1;
+
+        WriteAheadLog.logSet(key, value, expiryTime);
 
         store.set(key, value, ttl);
         return "OK";
@@ -95,10 +98,10 @@ public class KeyValueService {
             return "ERR DEL requires key";
         }
 
-        // -------- WAL FIRST --------
-        WriteAheadLog.log(command.getRaw());
+        String key = command.getArgs().get(0);
+        WriteAheadLog.logDelete(key);
 
-        boolean deleted = store.delete(command.getArgs().get(0));
+        boolean deleted = store.delete(key);
         return "INT " + (deleted ? 1 : 0);
     }
 
@@ -117,11 +120,16 @@ public class KeyValueService {
                 return "ERR seconds must be > 0";
             }
 
-            // -------- WAL FIRST --------
-            WriteAheadLog.log(command.getRaw());
+            String key = command.getArgs().get(0);
+            String value = store.get(key);
+            if (value == null) {
+                return "INT 0";
+            }
 
-            boolean success = store.expire(command.getArgs().get(0), seconds);
-            return "INT " + (success ? 1 : 0);
+            long expiryTime = System.currentTimeMillis() + (seconds * 1000);
+            WriteAheadLog.logSet(key, value, expiryTime);
+            store.restore(key, value, expiryTime);
+            return "INT 1";
 
         } catch (NumberFormatException e) {
             return "ERR invalid seconds value";
