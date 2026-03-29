@@ -1,5 +1,6 @@
 package com.zyra.store;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -7,109 +8,125 @@ public class InMemoryStore {
 
     private static final InMemoryStore INSTANCE = new InMemoryStore();
 
-    private final Map<String, String> data = new ConcurrentHashMap<>();
-    private final Map<String, Long> expiry = new ConcurrentHashMap<>();
+    private final Map<String, ValueWrapper> store = new ConcurrentHashMap<>();
 
-    private InMemoryStore() {}
+    private InMemoryStore() {
+    }
 
     public static InMemoryStore getInstance() {
         return INSTANCE;
     }
 
-    // ----------------------------------------------------
-    // SET key value ttlSeconds (-1 means no expiry)
-    // ----------------------------------------------------
-    public void set(String key, String value, long ttlSeconds) {
-        data.put(key, value);
+    public static class ValueWrapper {
+        private final String value;
+        private final long expiryTime;
 
-        if (ttlSeconds > 0) {
-            long expireAt = System.currentTimeMillis() + (ttlSeconds * 1000);
-            expiry.put(key, expireAt);
-        } else {
-            expiry.remove(key);
+        public ValueWrapper(String value, long expiryTime) {
+            this.value = value;
+            this.expiryTime = expiryTime;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public long getExpiryTime() {
+            return expiryTime;
+        }
+
+        public boolean isExpired() {
+            return expiryTime != -1 && System.currentTimeMillis() > expiryTime;
         }
     }
 
-    // ----------------------------------------------------
-    // GET key (atomic expiry check)
-    // ----------------------------------------------------
-    public String get(String key) {
-        Long expireAt = expiry.get(key);
+    public void set(String key, String value, long ttlSeconds) {
+        long expiryTime = ttlSeconds > 0
+                ? System.currentTimeMillis() + (ttlSeconds * 1000)
+                : -1;
 
-        if (expireAt != null && System.currentTimeMillis() > expireAt) {
-            delete(key);
+        store.put(key, new ValueWrapper(value, expiryTime));
+    }
+
+    public String get(String key) {
+        ValueWrapper wrapper = store.get(key);
+        if (wrapper == null) {
             return null;
         }
 
-        return data.get(key);
-    }
-
-    // ----------------------------------------------------
-    // DELETE key
-    // ----------------------------------------------------
-    public boolean delete(String key) {
-        expiry.remove(key);
-        return data.remove(key) != null;
-    }
-
-    // ----------------------------------------------------
-    // EXPIRE key seconds
-    // ----------------------------------------------------
-    public boolean expire(String key, long seconds) {
-        if (!data.containsKey(key)) {
-            return false;
+        if (wrapper.isExpired()) {
+            store.remove(key, wrapper);
+            return null;
         }
 
-        long expireAt = System.currentTimeMillis() + (seconds * 1000);
-        expiry.put(key, expireAt);
-        return true;
+        return wrapper.getValue();
     }
 
-    // ----------------------------------------------------
-    // TTL key  (Redis semantics)
-    // ----------------------------------------------------
-    public long ttl(String key) {
+    public boolean delete(String key) {
+        return store.remove(key) != null;
+    }
 
-        if (!data.containsKey(key)) {
+    public boolean expire(String key, long ttlSeconds) {
+        return store.computeIfPresent(key, (ignored, existing) -> {
+            if (existing.isExpired()) {
+                return null;
+            }
+
+            long expiryTime = System.currentTimeMillis() + (ttlSeconds * 1000);
+            return new ValueWrapper(existing.getValue(), expiryTime);
+        }) != null;
+    }
+
+    public long ttl(String key) {
+        ValueWrapper wrapper = store.get(key);
+        if (wrapper == null) {
             return -2;
         }
 
-        Long expireAt = expiry.get(key);
+        if (wrapper.isExpired()) {
+            store.remove(key, wrapper);
+            return -2;
+        }
 
-        if (expireAt == null) {
+        if (wrapper.getExpiryTime() == -1) {
             return -1;
         }
 
-        long millisLeft = expireAt - System.currentTimeMillis();
-
-        if (millisLeft <= 0) {
-            delete(key);
+        long remainingMillis = wrapper.getExpiryTime() - System.currentTimeMillis();
+        if (remainingMillis <= 0) {
+            store.remove(key, wrapper);
             return -2;
         }
 
-        // ceil instead of floor
-        return (millisLeft + 999) / 1000;
+        return (remainingMillis + 999) / 1000;
     }
 
-    // ----------------------------------------------------
-    // ACTIVE CLEANUP (used by ExpiryScheduler)
-    // ----------------------------------------------------
     public int cleanupExpiredKeys() {
-        int cleaned = 0;
-        long now = System.currentTimeMillis();
+        int removed = 0;
 
-        for (Map.Entry<String, Long> entry : expiry.entrySet()) {
-            String key = entry.getKey();
-            Long expireAt = entry.getValue();
-
-            if (expireAt != null && now > expireAt) {
-                if (expiry.remove(key, expireAt)) {
-                    data.remove(key);
-                    cleaned++;
-                }
+        for (Map.Entry<String, ValueWrapper> entry : store.entrySet()) {
+            if (entry.getValue().isExpired() && store.remove(entry.getKey(), entry.getValue())) {
+                removed++;
             }
         }
 
-        return cleaned;
+        return removed;
+    }
+
+    public Map<String, ValueWrapper> snapshot() {
+        cleanupExpiredKeys();
+        return new HashMap<>(store);
+    }
+
+    public void clear() {
+        store.clear();
+    }
+
+    public void restore(String key, String value, long expiryTime) {
+        if (expiryTime != -1 && expiryTime <= System.currentTimeMillis()) {
+            store.remove(key);
+            return;
+        }
+
+        store.put(key, new ValueWrapper(value, expiryTime));
     }
 }

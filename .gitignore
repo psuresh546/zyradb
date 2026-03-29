@@ -1,5 +1,9 @@
 HELP.md
 target/
+.m2repo/
+zyra.snapshot
+.DS_Store
+*.log
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/
