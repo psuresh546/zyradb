@@ -9,6 +9,8 @@
 
 ZyraDB is a Redis-inspired, in-memory key-value database built from scratch in Java 21 with Spring Boot. It focuses on storage-engine fundamentals such as TCP command handling, concurrent access control, write-ahead logging, snapshot-based persistence, TTL expiration, crash-tolerant replay, and graceful shutdown behavior.
 
+For a deeper technical walkthrough of the architecture, concepts, algorithms, and execution flows, see [Detailed Documentation](/docs/DETAILED_DOCUMENTATION.md).
+
 ## Project Overview
 
 This project is designed as an educational database engine rather than a full Redis clone. The goal is to understand how a small storage system is structured end to end:
