@@ -34,7 +34,6 @@ class InMemoryStoreTest {
     @Test
     void expireMarksExistingKeyAndTtlReflectsRemainingTime() {
         store.set("session", "active", -1);
-
         assertTrue(store.expire("session", 5));
         assertTrue(store.ttl("session") <= 5);
         assertTrue(store.ttl("session") >= 1);

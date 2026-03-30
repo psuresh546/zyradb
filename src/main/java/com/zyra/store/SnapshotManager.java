@@ -53,16 +53,18 @@ public class SnapshotManager {
             Files.move(tempPath, finalPath,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
+            WriteAheadLog.reset();
             return true;
         } catch (AtomicMoveNotSupportedException e) {
             try {
                 Files.move(tempPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
+                WriteAheadLog.reset();
                 return true;
-            } catch (IOException moveException) {
+            } catch (IOException | RuntimeException moveException) {
                 moveException.printStackTrace();
                 return false;
             }
-        } catch (IOException e) {
+        } catch (IOException | RuntimeException e) {
             e.printStackTrace();
             return false;
         }

@@ -21,6 +21,7 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -81,7 +82,22 @@ public class TCPServer {
             while (running.get()) {
                 Socket client = localServerSocket.accept();
                 clientSockets.add(client);
-                clientExecutor.execute(() -> handleClient(client));
+                ExecutorService executor = clientExecutor;
+                if (executor == null || executor.isShutdown()) {
+                    closeClientQuietly(client);
+                    clientSockets.remove(client);
+                    continue;
+                }
+
+                try {
+                    executor.execute(() -> handleClient(client));
+                } catch (RejectedExecutionException e) {
+                    closeClientQuietly(client);
+                    clientSockets.remove(client);
+                    if (running.get()) {
+                        log.warn("Rejected client connection during server shutdown");
+                    }
+                }
             }
 
         } catch (SocketException e) {
@@ -97,9 +113,13 @@ public class TCPServer {
         }
     }
 
+    public void stop() {
+        shutdown();
+    }
+
     @PreDestroy
     public void shutdown() {
-        if (!started.get()) {
+        if (!started.compareAndSet(true, false)) {
             return;
         }
 
@@ -121,8 +141,20 @@ public class TCPServer {
             }
         }
 
-        if (clientExecutor != null) {
-            clientExecutor.shutdownNow();
+        ExecutorService localClientExecutor = clientExecutor;
+        clientExecutor = null;
+        if (localClientExecutor != null) {
+            localClientExecutor.shutdown();
+            try {
+                if (!localClientExecutor.awaitTermination(2, TimeUnit.SECONDS)) {
+                    localClientExecutor.shutdownNow();
+                    localClientExecutor.awaitTermination(2, TimeUnit.SECONDS);
+                }
+            } catch (InterruptedException e) {
+                localClientExecutor.shutdownNow();
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while waiting for client workers to stop");
+            }
         }
 
         if (serverThread != null && serverThread.isAlive()) {
@@ -133,6 +165,9 @@ public class TCPServer {
                 log.warn("Interrupted while waiting for TCP server to stop");
             }
         }
+
+        serverThread = null;
+        serverSocket = null;
     }
 
     private void handleClient(Socket client) {
@@ -171,12 +206,16 @@ public class TCPServer {
         } catch (IOException e) {
             log.debug("Client I/O ended: {}", e.getMessage());
         } finally {
-            try {
-                client.close();
-            } catch (IOException ignored) {
-            }
+            closeClientQuietly(client);
             clientSockets.remove(client);
             log.info("Client disconnected");
+        }
+    }
+
+    private void closeClientQuietly(Socket client) {
+        try {
+            client.close();
+        } catch (IOException ignored) {
         }
     }
 }

@@ -10,24 +10,36 @@ import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.Bean;
 
+import java.util.concurrent.atomic.AtomicBoolean;
+
 @SpringBootApplication
 public class ZyraDbApplication {
 
     public static void main(String[] args) {
-        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            System.out.println("Shutdown detected. Flushing snapshot and closing WAL.");
+        var context = SpringApplication.run(ZyraDbApplication.class, args);
+        InMemoryStore store = context.getBean(InMemoryStore.class);
+        TCPServer tcpServer = context.getBean(TCPServer.class);
+        AtomicBoolean shutdownExecuted = new AtomicBoolean(false);
 
-            InMemoryStore store = InMemoryStore.getInstance();
+        Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+            if (!shutdownExecuted.compareAndSet(false, true)) {
+                return;
+            }
+
+            System.out.println("ZyraDB shutting down safely...");
+
+            ExpiryScheduler.shutdown();
+            tcpServer.shutdown();
+
             boolean snapshotSaved = SnapshotManager.save(store);
-            if (snapshotSaved) {
-                WriteAheadLog.reset();
-            } else {
+            if (!snapshotSaved) {
                 System.err.println("Snapshot save failed. Preserving WAL for recovery.");
             }
-            WriteAheadLog.close();
-        }, "zyra-shutdown"));
 
-        SpringApplication.run(ZyraDbApplication.class, args);
+            WriteAheadLog.shutdown();
+
+            System.out.println("Shutdown complete.");
+        }, "zyra-shutdown"));
     }
 
     @Bean

@@ -10,7 +10,7 @@ public class InMemoryStore {
     private static final InMemoryStore INSTANCE = new InMemoryStore();
 
     private final Map<String, ValueWrapper> store = new HashMap<>();
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private final ReentrantReadWriteLock rwLock = new ReentrantReadWriteLock();
 
     private InMemoryStore() {
     }
@@ -42,11 +42,11 @@ public class InMemoryStore {
     }
 
     public ReentrantReadWriteLock.ReadLock readLock() {
-        return lock.readLock();
+        return rwLock.readLock();
     }
 
     public ReentrantReadWriteLock.WriteLock writeLock() {
-        return lock.writeLock();
+        return rwLock.writeLock();
     }
 
     public void set(String key, String value, long ttlSeconds) {

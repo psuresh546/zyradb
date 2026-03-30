@@ -4,18 +4,17 @@ import com.zyra.store.InMemoryStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
-public class ExpiryScheduler implements Runnable {
+public class ExpiryScheduler {
 
     private static final Logger log = LoggerFactory.getLogger(ExpiryScheduler.class);
     private static final AtomicBoolean STARTED = new AtomicBoolean(false);
+    private static volatile ScheduledExecutorService scheduler;
     private static volatile long startedAtMillis;
-    private final InMemoryStore store;
-
-    public ExpiryScheduler(InMemoryStore store) {
-        this.store = store;
-    }
 
     public static void start(InMemoryStore store) {
         if (!STARTED.compareAndSet(false, true)) {
@@ -23,9 +22,12 @@ public class ExpiryScheduler implements Runnable {
         }
 
         startedAtMillis = System.currentTimeMillis();
-        Thread schedulerThread = new Thread(new ExpiryScheduler(store), "zyra-expiry-scheduler");
-        schedulerThread.setDaemon(true);
-        schedulerThread.start();
+        scheduler = Executors.newSingleThreadScheduledExecutor(runnable -> {
+            Thread thread = new Thread(runnable, "zyra-expiry-scheduler");
+            thread.setDaemon(true);
+            return thread;
+        });
+        scheduler.scheduleAtFixedRate(() -> runCleanup(store), 5, 5, TimeUnit.SECONDS);
     }
 
     public static long uptimeSeconds() {
@@ -36,26 +38,32 @@ public class ExpiryScheduler implements Runnable {
         return Math.max(0L, (System.currentTimeMillis() - startedAtMillis) / 1000);
     }
 
-    @Override
-    public void run() {
-        while (true) {
-            try {
-                Thread.sleep(5000); // run every 5 seconds
-                store.writeLock().lock();
-                int cleaned;
-                try {
-                    cleaned = store.cleanupExpiredKeys();
-                } finally {
-                    store.writeLock().unlock();
-                }
-                if (cleaned > 0) {
-                    log.info("[SCHEDULER] Cleaned {} expired keys", cleaned);
-                }
-            } catch (InterruptedException e) {
-                log.error("ExpiryScheduler interrupted", e);
-                Thread.currentThread().interrupt();
-                break;
+    private static void runCleanup(InMemoryStore store) {
+        try {
+            int cleaned = store.cleanupExpiredKeys();
+            if (cleaned > 0) {
+                log.info("[SCHEDULER] Cleaned {} expired keys", cleaned);
             }
+        } catch (RuntimeException e) {
+            log.error("ExpiryScheduler cleanup failed", e);
+        }
+    }
+
+    public static void stop() {
+        shutdown();
+    }
+
+    public static void shutdown() {
+        if (!STARTED.compareAndSet(true, false)) {
+            return;
+        }
+
+        ScheduledExecutorService localScheduler = scheduler;
+        scheduler = null;
+        startedAtMillis = 0L;
+
+        if (localScheduler != null) {
+            localScheduler.shutdownNow();
         }
     }
 }

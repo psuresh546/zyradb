@@ -23,10 +23,6 @@ public class WriteAheadLog {
     private static BufferedWriter writer;
     private static FileChannel channel;
 
-    static {
-        Runtime.getRuntime().addShutdownHook(new Thread(WriteAheadLog::close, "zyra-wal-shutdown"));
-    }
-
     private static synchronized void init() throws IOException {
         if (writer != null) {
             return;
@@ -78,13 +74,13 @@ public class WriteAheadLog {
             while ((line = reader.readLine()) != null) {
                 try {
                     replayLine(line, store);
-                } catch (RuntimeException e) {
+                } catch (Exception e) {
                     System.err.println("Skipping corrupted WAL entry: " + line);
                 }
             }
 
         } catch (IOException e) {
-            throw new RuntimeException("WAL replay failed", e);
+            System.err.println("WAL replay failed, skipping recovery from WAL: " + e.getMessage());
         } finally {
             store.writeLock().unlock();
         }
@@ -174,6 +170,10 @@ public class WriteAheadLog {
         writer = null;
         channel = null;
         fos = null;
+    }
+
+    public static synchronized void shutdown() {
+        close();
     }
 
     private static String encode(String value) {
