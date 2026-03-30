@@ -22,6 +22,10 @@ This project is designed as an educational database engine rather than a full Re
 
 ZyraDB emphasizes correctness and lifecycle behavior over breadth of features.
 
+## Why This Project Matters
+
+ZyraDB is a strong systems project because it demonstrates more than CRUD over a map. It shows how a database-like service handles networking, concurrency, recovery, expiration, persistence, and shutdown safety in one coherent codebase. For interviews and portfolio review, that makes it much more compelling than a typical REST application.
+
 ## Key Learning Objectives
 
 - Understand how a custom TCP-based database protocol works
@@ -55,6 +59,34 @@ ZyraDB follows a small layered architecture:
 
 7. `ExpiryScheduler`
    Periodically removes expired keys in the background while passive expiration is also enforced during reads.
+
+## Request Flow
+
+A write command such as `SET user alice EX 30` moves through the system like this:
+
+```text
+Client
+  -> TCPServer
+  -> CommandParser
+  -> KeyValueService
+  -> mutation lock
+  -> WriteAheadLog
+  -> InMemoryStore
+  -> response to client
+```
+
+A read command such as `GET user` is simpler:
+
+```text
+Client
+  -> TCPServer
+  -> CommandParser
+  -> KeyValueService
+  -> InMemoryStore read path
+  -> response to client
+```
+
+This separation is important because writes must keep `WAL + memory` consistent, while reads should remain lightweight and concurrent.
 
 ## Features Implemented
 
@@ -263,11 +295,18 @@ macOS/Linux:
 ./mvnw test
 ```
 
-## Educational Purpose Note
+## Verification
 
-ZyraDB is built for learning and portfolio-quality systems practice. It is intended to demonstrate storage-engine concepts clearly in a compact codebase, not to replace production databases like Redis, RocksDB, or PostgreSQL.
+The project includes automated coverage across the main engine layers:
 
-Areas such as security, replication, clustering, memory efficiency, metrics, and operational tooling are intentionally limited so the core internals remain understandable.
+- parser tests for command parsing and aliases
+- service tests for command validation and responses
+- store tests for expiration, TTL behavior, and concurrent access
+- WAL tests for durability and replay behavior
+- TCP integration tests for real socket-based command execution
+- full-system flow tests for restart, snapshot, replay, scheduler cleanup, and race scenarios
+
+This gives ZyraDB both unit-level confidence and end-to-end behavior verification.
 
 ## Future Enhancements
 
@@ -283,6 +322,6 @@ Areas such as security, replication, clustering, memory efficiency, metrics, and
 
 ## License
 
-This project is intended for educational purpose only. It is shared to demonstrate database internals, systems design concepts, and storage-engine fundamentals in a compact Java codebase.
+This project is intended for educational purposes only. It is shared to demonstrate database internals, systems design concepts, and storage-engine fundamentals in a compact Java codebase.
 
 No formal open-source license is currently included in this repository. Until a license file is added, the project should be treated as all rights reserved by default.
