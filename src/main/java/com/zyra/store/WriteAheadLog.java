@@ -68,6 +68,7 @@ public class WriteAheadLog {
             return;
         }
 
+        store.writeLock().lock();
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(
                         new FileInputStream(WAL_PATH.toFile()),
@@ -84,6 +85,8 @@ public class WriteAheadLog {
 
         } catch (IOException e) {
             throw new RuntimeException("WAL replay failed", e);
+        } finally {
+            store.writeLock().unlock();
         }
     }
 

@@ -41,7 +41,13 @@ public class ExpiryScheduler implements Runnable {
         while (true) {
             try {
                 Thread.sleep(5000); // run every 5 seconds
-                int cleaned = store.cleanupExpiredKeys();
+                store.writeLock().lock();
+                int cleaned;
+                try {
+                    cleaned = store.cleanupExpiredKeys();
+                } finally {
+                    store.writeLock().unlock();
+                }
                 if (cleaned > 0) {
                     log.info("[SCHEDULER] Cleaned {} expired keys", cleaned);
                 }

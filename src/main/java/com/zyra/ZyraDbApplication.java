@@ -18,8 +18,12 @@ public class ZyraDbApplication {
             System.out.println("Shutdown detected. Flushing snapshot and closing WAL.");
 
             InMemoryStore store = InMemoryStore.getInstance();
-            SnapshotManager.save(store.snapshot());
-            WriteAheadLog.reset();
+            boolean snapshotSaved = SnapshotManager.save(store);
+            if (snapshotSaved) {
+                WriteAheadLog.reset();
+            } else {
+                System.err.println("Snapshot save failed. Preserving WAL for recovery.");
+            }
             WriteAheadLog.close();
         }, "zyra-shutdown"));
 

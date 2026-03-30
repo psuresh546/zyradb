@@ -109,6 +109,29 @@ class TCPServerIntegrationTest {
         }
     }
 
+    @Test
+    void canRestartAfterShutdown() throws Exception {
+        server.shutdown();
+        waitForServerToStop();
+
+        server.start();
+        waitForServer();
+
+        try (
+                Socket socket = new Socket("localhost", port);
+                BufferedWriter writer = new BufferedWriter(
+                        new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
+        ) {
+            writeLine(writer, "SET restart ok");
+            assertEquals("OK", reader.readLine());
+
+            writeLine(writer, "GET restart");
+            assertEquals("VAL ok", reader.readLine());
+        }
+    }
+
     private void writeLine(BufferedWriter writer, String line) throws IOException {
         writer.write(line);
         writer.newLine();
@@ -133,5 +156,19 @@ class TCPServerIntegrationTest {
         }
 
         throw new IllegalStateException("TCP server did not start in time");
+    }
+
+    private void waitForServerToStop() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(3).toNanos();
+
+        while (System.nanoTime() < deadline) {
+            try (Socket ignored = new Socket("localhost", port)) {
+                Thread.sleep(50);
+            } catch (IOException ignored) {
+                return;
+            }
+        }
+
+        throw new IllegalStateException("TCP server did not stop in time");
     }
 }

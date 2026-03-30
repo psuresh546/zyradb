@@ -32,7 +32,7 @@ class SnapshotManagerTest {
     void snapshotRoundTripPreservesSpecialCharacters() {
         store.set("key|1", "value|with|pipes", -1);
 
-        SnapshotManager.save(store.snapshot());
+        SnapshotManager.save(store);
         store.clear();
         SnapshotManager.load(store);
 
@@ -44,7 +44,7 @@ class SnapshotManagerTest {
         long expiredAt = System.currentTimeMillis() - 1_000;
         store.restore("old", "value", expiredAt);
 
-        SnapshotManager.save(store.snapshot());
+        SnapshotManager.save(store);
         store.clear();
         SnapshotManager.load(store);
 

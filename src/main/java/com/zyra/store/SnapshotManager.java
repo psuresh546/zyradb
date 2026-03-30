@@ -18,9 +18,10 @@ public class SnapshotManager {
     private static final String SNAPSHOT_FILE = "zyra.snapshot";
     private static final String TEMP_FILE = "zyra.snapshot.tmp";
 
-    public static void save(Map<String, InMemoryStore.ValueWrapper> data) {
+    public static boolean save(InMemoryStore store) {
         Path tempPath = Paths.get(TEMP_FILE);
         Path finalPath = Paths.get(SNAPSHOT_FILE);
+        Map<String, InMemoryStore.ValueWrapper> data = store.snapshot();
 
         try (BufferedWriter writer = Files.newBufferedWriter(
                 tempPath,
@@ -45,21 +46,25 @@ public class SnapshotManager {
             writer.flush();
         } catch (IOException e) {
             e.printStackTrace();
-            return;
+            return false;
         }
 
         try {
             Files.move(tempPath, finalPath,
                     StandardCopyOption.REPLACE_EXISTING,
                     StandardCopyOption.ATOMIC_MOVE);
+            return true;
         } catch (AtomicMoveNotSupportedException e) {
             try {
                 Files.move(tempPath, finalPath, StandardCopyOption.REPLACE_EXISTING);
+                return true;
             } catch (IOException moveException) {
                 moveException.printStackTrace();
+                return false;
             }
         } catch (IOException e) {
             e.printStackTrace();
+            return false;
         }
     }
 
@@ -67,6 +72,7 @@ public class SnapshotManager {
         Path path = Paths.get(SNAPSHOT_FILE);
         if (!Files.exists(path)) return;
 
+        store.writeLock().lock();
         try (BufferedReader reader = Files.newBufferedReader(path, StandardCharsets.UTF_8)) {
             String line;
             while ((line = reader.readLine()) != null) {
@@ -85,6 +91,8 @@ public class SnapshotManager {
             }
         } catch (IOException e) {
             e.printStackTrace();
+        } finally {
+            store.writeLock().unlock();
         }
     }
 

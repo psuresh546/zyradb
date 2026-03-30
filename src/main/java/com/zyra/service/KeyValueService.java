@@ -7,6 +7,7 @@ import com.zyra.store.WriteAheadLog;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Service
 public class KeyValueService {
@@ -78,10 +79,15 @@ public class KeyValueService {
                 ? System.currentTimeMillis() + (ttl * 1000)
                 : -1;
 
-        WriteAheadLog.logSet(key, value, expiryTime);
-
-        store.set(key, value, ttl);
-        return "OK";
+        ReentrantReadWriteLock.WriteLock writeLock = store.writeLock();
+        writeLock.lock();
+        try {
+            WriteAheadLog.logSet(key, value, expiryTime);
+            store.restore(key, value, expiryTime);
+            return "OK";
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     // ----------------------------------------------------
@@ -93,8 +99,14 @@ public class KeyValueService {
             return "ERR GET requires key";
         }
 
-        String value = store.get(command.getArgs().get(0));
-        return value != null ? "VAL " + value : "NIL";
+        ReentrantReadWriteLock.ReadLock readLock = store.readLock();
+        readLock.lock();
+        try {
+            String value = store.get(command.getArgs().get(0));
+            return value != null ? "VAL " + value : "NIL";
+        } finally {
+            readLock.unlock();
+        }
     }
 
     // ----------------------------------------------------
@@ -107,10 +119,15 @@ public class KeyValueService {
         }
 
         String key = command.getArgs().get(0);
-        WriteAheadLog.logDelete(key);
-
-        boolean deleted = store.delete(key);
-        return "INT " + (deleted ? 1 : 0);
+        ReentrantReadWriteLock.WriteLock writeLock = store.writeLock();
+        writeLock.lock();
+        try {
+            WriteAheadLog.logDelete(key);
+            boolean deleted = store.delete(key);
+            return "INT " + (deleted ? 1 : 0);
+        } finally {
+            writeLock.unlock();
+        }
     }
 
     // ----------------------------------------------------
@@ -129,15 +146,21 @@ public class KeyValueService {
             }
 
             String key = command.getArgs().get(0);
-            String value = store.get(key);
-            if (value == null) {
-                return "INT 0";
-            }
-
             long expiryTime = System.currentTimeMillis() + (seconds * 1000);
-            WriteAheadLog.logSet(key, value, expiryTime);
-            store.restore(key, value, expiryTime);
-            return "INT 1";
+            ReentrantReadWriteLock.WriteLock writeLock = store.writeLock();
+            writeLock.lock();
+            try {
+                String value = store.get(key);
+                if (value == null) {
+                    return "INT 0";
+                }
+
+                WriteAheadLog.logSet(key, value, expiryTime);
+                store.restore(key, value, expiryTime);
+                return "INT 1";
+            } finally {
+                writeLock.unlock();
+            }
 
         } catch (NumberFormatException e) {
             return "ERR invalid seconds value";
@@ -153,8 +176,14 @@ public class KeyValueService {
             return "ERR TTL requires key";
         }
 
-        long ttl = store.ttl(command.getArgs().get(0));
-        return "INT " + ttl;
+        ReentrantReadWriteLock.ReadLock readLock = store.readLock();
+        readLock.lock();
+        try {
+            long ttl = store.ttl(command.getArgs().get(0));
+            return "INT " + ttl;
+        } finally {
+            readLock.unlock();
+        }
     }
 
     private String handleInfo(Command command) {

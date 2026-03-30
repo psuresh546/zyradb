@@ -17,6 +17,11 @@ import java.net.ServerSocket;
 import java.net.Socket;
 import java.net.SocketException;
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Component
@@ -30,8 +35,10 @@ public class TCPServer {
     private final com.zyra.parser.CommandParser parser;
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(false);
+    private final Set<Socket> clientSockets = ConcurrentHashMap.newKeySet();
     private volatile ServerSocket serverSocket;
     private volatile Thread serverThread;
+    private volatile ExecutorService clientExecutor;
 
     @Autowired
     public TCPServer(
@@ -39,13 +46,6 @@ public class TCPServer {
             @Value("${zyra.tcp.enabled:true}") boolean enabled,
             KeyValueService service,
             com.zyra.parser.CommandParser parser) {
-        this.port = port;
-        this.enabled = enabled;
-        this.service = service;
-        this.parser = parser;
-    }
-
-    TCPServer(int port, boolean enabled, KeyValueService service, com.zyra.parser.CommandParser parser) {
         this.port = port;
         this.enabled = enabled;
         this.service = service;
@@ -64,8 +64,12 @@ public class TCPServer {
         }
 
         running.set(true);
+        clientExecutor = Executors.newCachedThreadPool(runnable -> {
+            Thread thread = new Thread(runnable);
+            thread.setName("zyra-client-worker");
+            return thread;
+        });
         serverThread = new Thread(this::runServer, "zyra-tcp-acceptor-" + port);
-        serverThread.setDaemon(true);
         serverThread.start();
     }
 
@@ -76,9 +80,8 @@ public class TCPServer {
 
             while (running.get()) {
                 Socket client = localServerSocket.accept();
-                Thread clientThread = new Thread(() -> handleClient(client), "zyra-client-" + client.getPort());
-                clientThread.setDaemon(true);
-                clientThread.start();
+                clientSockets.add(client);
+                clientExecutor.execute(() -> handleClient(client));
             }
 
         } catch (SocketException e) {
@@ -109,6 +112,27 @@ public class TCPServer {
         } catch (IOException e) {
             log.warn("Error while closing TCP server", e);
         }
+
+        for (Socket clientSocket : clientSockets) {
+            try {
+                clientSocket.close();
+            } catch (IOException e) {
+                log.debug("Error while closing client socket: {}", e.getMessage());
+            }
+        }
+
+        if (clientExecutor != null) {
+            clientExecutor.shutdownNow();
+        }
+
+        if (serverThread != null && serverThread.isAlive()) {
+            try {
+                serverThread.join(TimeUnit.SECONDS.toMillis(2));
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                log.warn("Interrupted while waiting for TCP server to stop");
+            }
+        }
     }
 
     private void handleClient(Socket client) {
@@ -127,9 +151,13 @@ public class TCPServer {
 
                 if (line.isBlank()) continue;
 
-                String response = service.execute(
-                        parser.parse(line)
-                );
+                String response;
+                try {
+                    response = service.execute(parser.parse(line));
+                } catch (RuntimeException e) {
+                    log.warn("Client command failed: {}", e.getMessage());
+                    response = "ERR internal server error";
+                }
 
                 writer.write(response);
                 writer.newLine();
@@ -147,6 +175,7 @@ public class TCPServer {
                 client.close();
             } catch (IOException ignored) {
             }
+            clientSockets.remove(client);
             log.info("Client disconnected");
         }
     }

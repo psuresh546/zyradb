@@ -1,14 +1,16 @@
 package com.zyra.store;
 
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 public class InMemoryStore {
 
     private static final InMemoryStore INSTANCE = new InMemoryStore();
 
-    private final Map<String, ValueWrapper> store = new ConcurrentHashMap<>();
+    private final Map<String, ValueWrapper> store = new HashMap<>();
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
 
     private InMemoryStore() {
     }
@@ -39,99 +41,155 @@ public class InMemoryStore {
         }
     }
 
-    public void set(String key, String value, long ttlSeconds) {
-        long expiryTime = ttlSeconds > 0
-                ? System.currentTimeMillis() + (ttlSeconds * 1000)
-                : -1;
+    public ReentrantReadWriteLock.ReadLock readLock() {
+        return lock.readLock();
+    }
 
-        store.put(key, new ValueWrapper(value, expiryTime));
+    public ReentrantReadWriteLock.WriteLock writeLock() {
+        return lock.writeLock();
+    }
+
+    public void set(String key, String value, long ttlSeconds) {
+        writeLock().lock();
+        try {
+            long expiryTime = ttlSeconds > 0
+                    ? System.currentTimeMillis() + (ttlSeconds * 1000)
+                    : -1;
+
+            store.put(key, new ValueWrapper(value, expiryTime));
+        } finally {
+            writeLock().unlock();
+        }
     }
 
     public String get(String key) {
-        ValueWrapper wrapper = store.get(key);
-        if (wrapper == null) {
-            return null;
-        }
-
-        if (wrapper.isExpired()) {
-            store.remove(key, wrapper);
-            return null;
-        }
-
-        return wrapper.getValue();
-    }
-
-    public boolean delete(String key) {
-        return store.remove(key) != null;
-    }
-
-    public boolean expire(String key, long ttlSeconds) {
-        return store.computeIfPresent(key, (ignored, existing) -> {
-            if (existing.isExpired()) {
+        readLock().lock();
+        try {
+            ValueWrapper wrapper = store.get(key);
+            if (wrapper == null || wrapper.isExpired()) {
                 return null;
             }
 
+            return wrapper.getValue();
+        } finally {
+            readLock().unlock();
+        }
+    }
+
+    public boolean delete(String key) {
+        writeLock().lock();
+        try {
+            return store.remove(key) != null;
+        } finally {
+            writeLock().unlock();
+        }
+    }
+
+    public boolean expire(String key, long ttlSeconds) {
+        writeLock().lock();
+        try {
+            ValueWrapper existing = store.get(key);
+            if (existing == null || existing.isExpired()) {
+                return false;
+            }
+
             long expiryTime = System.currentTimeMillis() + (ttlSeconds * 1000);
-            return new ValueWrapper(existing.getValue(), expiryTime);
-        }) != null;
+            store.put(key, new ValueWrapper(existing.getValue(), expiryTime));
+            return true;
+        } finally {
+            writeLock().unlock();
+        }
     }
 
     public long ttl(String key) {
-        ValueWrapper wrapper = store.get(key);
-        if (wrapper == null) {
-            return -2;
-        }
+        readLock().lock();
+        try {
+            ValueWrapper wrapper = store.get(key);
+            if (wrapper == null || wrapper.isExpired()) {
+                return -2;
+            }
 
-        if (wrapper.isExpired()) {
-            store.remove(key, wrapper);
-            return -2;
-        }
+            if (wrapper.getExpiryTime() == -1) {
+                return -1;
+            }
 
-        if (wrapper.getExpiryTime() == -1) {
-            return -1;
+            long remainingMillis = wrapper.getExpiryTime() - System.currentTimeMillis();
+            return remainingMillis <= 0 ? -2 : (remainingMillis + 999) / 1000;
+        } finally {
+            readLock().unlock();
         }
-
-        long remainingMillis = wrapper.getExpiryTime() - System.currentTimeMillis();
-        if (remainingMillis <= 0) {
-            store.remove(key, wrapper);
-            return -2;
-        }
-
-        return (remainingMillis + 999) / 1000;
     }
 
     public int cleanupExpiredKeys() {
-        int removed = 0;
+        writeLock().lock();
+        try {
+            int removed = 0;
 
-        for (Map.Entry<String, ValueWrapper> entry : store.entrySet()) {
-            if (entry.getValue().isExpired() && store.remove(entry.getKey(), entry.getValue())) {
-                removed++;
+            Iterator<Map.Entry<String, ValueWrapper>> iterator = store.entrySet().iterator();
+            while (iterator.hasNext()) {
+                Map.Entry<String, ValueWrapper> entry = iterator.next();
+                if (entry.getValue().isExpired()) {
+                    iterator.remove();
+                    removed++;
+                }
             }
-        }
 
-        return removed;
+            return removed;
+        } finally {
+            writeLock().unlock();
+        }
     }
 
     public Map<String, ValueWrapper> snapshot() {
-        cleanupExpiredKeys();
-        return new HashMap<>(store);
+        readLock().lock();
+        try {
+            Map<String, ValueWrapper> snapshot = new HashMap<>();
+            for (Map.Entry<String, ValueWrapper> entry : store.entrySet()) {
+                if (!entry.getValue().isExpired()) {
+                    snapshot.put(entry.getKey(), entry.getValue());
+                }
+            }
+            return snapshot;
+        } finally {
+            readLock().unlock();
+        }
     }
 
     public int size() {
-        cleanupExpiredKeys();
-        return store.size();
+        readLock().lock();
+        try {
+            int size = 0;
+            for (ValueWrapper wrapper : store.values()) {
+                if (!wrapper.isExpired()) {
+                    size++;
+                }
+            }
+            return size;
+        } finally {
+            readLock().unlock();
+        }
     }
 
     public void clear() {
-        store.clear();
+        writeLock().lock();
+        try {
+            store.clear();
+        } finally {
+            writeLock().unlock();
+        }
     }
 
     public void restore(String key, String value, long expiryTime) {
-        if (expiryTime != -1 && expiryTime <= System.currentTimeMillis()) {
-            store.remove(key);
-            return;
-        }
+        writeLock().lock();
+        try {
+            if (expiryTime != -1 && expiryTime <= System.currentTimeMillis()) {
+                store.remove(key);
+                return;
+            }
 
-        store.put(key, new ValueWrapper(value, expiryTime));
+            store.put(key, new ValueWrapper(value, expiryTime));
+        } finally {
+            writeLock().unlock();
+        }
     }
 }
