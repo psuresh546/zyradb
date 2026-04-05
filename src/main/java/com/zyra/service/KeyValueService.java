@@ -28,11 +28,11 @@ public class KeyValueService {
         return switch (name) {
             case "SET" -> handleSet(command);
             case "GET" -> handleGet(command);
-            case "DEL", "DELETE" -> handleDelete(command);
-            case "EXPIRE", "EXP", "EX" -> handleExpire(command);
+            case "DEL" -> handleDelete(command);
+            case "EXPIRE" -> handleExpire(command);
             case "TTL" -> handleTTL(command);
             case "INFO" -> handleInfo(command);
-            case "QUIT", "EXIT" -> "BYE";
+            case "QUIT" -> "BYE";
             default -> "ERR unknown command";
         };
     }
@@ -53,15 +53,15 @@ public class KeyValueService {
 
         long ttl = -1;
 
-        if (args.size() > 2) {
-            if (args.size() != 4) {
-                return "ERR invalid SET syntax. Use: SET key value EX/EXP/EXPIRE seconds";
-            }
+        if (args.size() != 2 && args.size() != 4) {
+            return "ERR invalid SET syntax. Use: SET key value [EX seconds]";
+        }
 
+        if (args.size() == 4) {
             String option = args.get(2).toUpperCase();
 
-            if (!(option.equals("EX") || option.equals("EXP") || option.equals("EXPIRE"))) {
-                return "ERR only EX/EXP/EXPIRE option supported";
+            if (!option.equals("EX")) {
+                return "ERR only EX option supported";
             }
 
             try {

@@ -46,7 +46,7 @@ class KeyValueServiceTest {
     @Test
     void invalidSetSyntaxReturnsHelpfulError() {
         assertEquals(
-                "ERR invalid SET syntax. Use: SET key value EX/EXP/EXPIRE seconds",
+                "ERR invalid SET syntax. Use: SET key value [EX seconds]",
                 service.execute(new Command("SET", List.of("a", "b", "EX")))
         );
     }

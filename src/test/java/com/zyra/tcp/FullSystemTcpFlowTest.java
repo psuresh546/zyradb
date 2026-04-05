@@ -78,9 +78,9 @@ class FullSystemTcpFlowTest {
 
         assertEquals("OK", sendCommand("SET e1 v EX 5"));
         assertTtlBetween(sendCommand("TTL e1"), 4, 5);
-        assertEquals("OK", sendCommand("SET e2 v EXP 5"));
+        assertEquals("OK", sendCommand("SET e2 v EX 5"));
         assertTtlBetween(sendCommand("TTL e2"), 4, 5);
-        assertEquals("OK", sendCommand("SET e3 v EXPIRE 5"));
+        assertEquals("OK", sendCommand("SET e3 v EX 5"));
         assertTtlBetween(sendCommand("TTL e3"), 4, 5);
 
         Thread.sleep(2000);

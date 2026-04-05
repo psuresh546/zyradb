@@ -1,70 +1,126 @@
 # ZyraDB
 
-**High-Performance In-Memory Key-Value Database (Built from Scratch in Java)**
+**A Redis-inspired in-memory key-value database built from scratch in Java**
 
 ![Java](https://img.shields.io/badge/Java-21-orange)
 ![Spring Boot](https://img.shields.io/badge/Spring%20Boot-3.x-green)
 ![Protocol](https://img.shields.io/badge/Protocol-TCP-blue)
-![Concurrency](https://img.shields.io/badge/Concurrency-ThreadPerConnection-red)
+![Persistence](https://img.shields.io/badge/Persistence-WAL%20%2B%20Snapshot-red)
 
-ZyraDB is a Redis-inspired, in-memory key-value database built from scratch in Java 21 with Spring Boot. It focuses on storage-engine fundamentals such as TCP command handling, concurrent access control, write-ahead logging, snapshot-based persistence, TTL expiration, crash-tolerant replay, and graceful shutdown behavior.
+ZyraDB is a systems-focused backend project that implements the core ideas behind a small database engine: custom TCP command handling, concurrent in-memory storage, write-ahead logging, snapshot persistence, TTL expiration, crash recovery, and graceful shutdown.
 
-For a deeper technical walkthrough of the architecture, concepts, algorithms, and execution flows, see [Detailed Documentation](/docs/DETAILED_DOCUMENTATION.md).
+The goal of the project is not to clone Redis feature-for-feature, but to understand how a real storage service is stitched together end to end.
 
-## Project Overview
+For a deeper walkthrough of the internals, see [Detailed Documentation](docs/DETAILED_DOCUMENTATION.md).
 
-This project is designed as an educational database engine rather than a full Redis clone. The goal is to understand how a small storage system is structured end to end:
+## Table of Contents
 
-- a TCP server accepts text-based commands
-- a parser converts raw input into internal commands
-- a service layer validates and executes operations
-- an in-memory store manages key/value state and expirations
-- a write-ahead log preserves recent mutations for recovery
-- snapshots compact state for faster restart
+- [Why ZyraDB](#why-zyradb)
+- [Feature Set](#feature-set)
+- [Architecture](#architecture)
+- [Request Lifecycle](#request-lifecycle)
+- [Persistence and Recovery](#persistence-and-recovery)
+- [Project Structure](#project-structure)
+- [Getting Started](#getting-started)
+- [Supported Commands](#supported-commands)
+- [Sample Session](#sample-session)
+- [Testing](#testing)
+- [Roadmap](#roadmap)
+- [License](#license)
 
-ZyraDB emphasizes correctness and lifecycle behavior over breadth of features.
+## Why ZyraDB
 
-## Why This Project Matters
+Most small backend projects stop at CRUD over HTTP. ZyraDB goes a layer deeper and focuses on storage engine fundamentals:
 
-ZyraDB is a strong systems project because it demonstrates more than CRUD over a map. It shows how a database-like service handles networking, concurrency, recovery, expiration, persistence, and shutdown safety in one coherent codebase. For interviews and portfolio review, that makes it much more compelling than a typical REST application.
+- TCP-based request handling instead of REST
+- command parsing and protocol-style responses
+- serialized mutation flow for consistency
+- thread-safe in-memory reads and writes
+- write-ahead logging for durability
+- snapshots for faster restart and WAL compaction
+- TTL support with passive and scheduled cleanup
+- startup recovery and graceful shutdown behavior
 
-## Key Learning Objectives
+That makes it a strong portfolio project for learning distributed systems and database internals.
 
-- Understand how a custom TCP-based database protocol works
-- Learn the purpose of write-ahead logging and snapshot persistence
-- Explore safe concurrency using read/write locks and serialized mutations
-- Implement TTL expiration with both passive and scheduled cleanup
-- Design startup recovery and graceful shutdown flows
-- Practice building, testing, and evolving a storage engine incrementally
+## Feature Set
+
+- In-memory key-value storage
+- Custom line-based TCP protocol
+- `SET`, `GET`, `DEL`, `EXPIRE`, `TTL`, `INFO`, `QUIT`
+- TTL support on `SET`
+- Passive expiration during reads
+- Background expiration cleanup every 5 seconds
+- Write-ahead logging to `zyra.wal`
+- Snapshot persistence to `zyra.snapshot`
+- WAL replay on restart
+- Corruption-tolerant recovery for malformed WAL or snapshot entries
+- Graceful shutdown with server stop, snapshot save, and WAL close
+- Unit and integration tests across parser, store, service, WAL, and TCP flow
 
 ## Architecture
 
-ZyraDB follows a small layered architecture:
+ZyraDB follows a layered architecture where each component owns one part of the request or persistence lifecycle.
 
-1. `TCPServer`
-   Accepts socket connections on port `6379` by default, reads line-based commands, and returns line-based responses.
+```text
+Client
+  ->
+TCPServer
+  ->
+CommandParser
+  ->
+KeyValueService
+  ->
+InMemoryStore
+  +-> WriteAheadLog
+  +-> SnapshotManager
+  +-> ExpiryScheduler
+```
 
-2. `CommandParser`
-   Parses raw text into a structured `Command` object and normalizes aliases such as `DELETE -> DEL`.
+### Core Components
 
-3. `KeyValueService`
-   Validates commands and coordinates the atomic write path for mutations. Write commands serialize `WAL + memory` as one logical operation.
+#### `ZyraDbApplication`
 
-4. `InMemoryStore`
-   Stores keys, values, and expiry metadata in memory. The store owns read/write locking for internal state integrity.
+Bootstraps the system, loads persisted state, replays the WAL, starts the expiry scheduler, starts the TCP server, and registers a shutdown hook for safe termination.
 
-5. `WriteAheadLog`
-   Persists mutations to `zyra.wal` so the latest changes can be recovered after restart.
+#### `TCPServer`
 
-6. `SnapshotManager`
-   Saves a compact snapshot to `zyra.snapshot` and truncates the WAL after successful snapshot creation.
+Accepts client socket connections on the configured port and processes line-based commands. Each client connection is handled through the server's worker executor.
 
-7. `ExpiryScheduler`
-   Periodically removes expired keys in the background while passive expiration is also enforced during reads.
+Default runtime configuration:
 
-## Request Flow
+- `zyra.tcp.port=6380`
+- `zyra.tcp.enabled=true`
 
-A write command such as `SET user alice EX 30` moves through the system like this:
+#### `CommandParser`
+
+Parses raw input into a structured `Command` object and normalizes command aliases.
+
+#### `KeyValueService`
+
+Acts as the command execution layer. It validates input, routes operations, and serializes writes so `WAL + in-memory state` remain consistent.
+
+#### `InMemoryStore`
+
+Maintains live key/value data and expiry metadata using a `ReentrantReadWriteLock` for safe concurrent access.
+
+#### `WriteAheadLog`
+
+Appends mutations to `zyra.wal` before in-memory state is considered committed. This allows the database to recover recent writes after restart.
+
+#### `SnapshotManager`
+
+Writes a compact snapshot to `zyra.snapshot` and truncates the WAL after a successful snapshot so recovery stays fast.
+
+#### `ExpiryScheduler`
+
+Runs periodic cleanup for expired keys while passive expiration is also enforced on reads like `GET` and `TTL`.
+
+## Request Lifecycle
+
+### Write Path
+
+For a mutation such as `SET user alice EX 30`:
 
 ```text
 Client
@@ -72,206 +128,128 @@ Client
   -> CommandParser
   -> KeyValueService
   -> mutation lock
-  -> WriteAheadLog
-  -> InMemoryStore
-  -> response to client
+  -> WriteAheadLog.logSet(...)
+  -> InMemoryStore.restore(...)
+  -> response: OK
 ```
 
-A read command such as `GET user` is simpler:
+The important part here is that writes are serialized through the service layer so persistence and memory updates happen as one logical operation.
+
+### Read Path
+
+For a lookup such as `GET user`:
 
 ```text
 Client
   -> TCPServer
   -> CommandParser
   -> KeyValueService
-  -> InMemoryStore read path
-  -> response to client
+  -> InMemoryStore.get(...)
+  -> response: VAL alice
 ```
 
-This separation is important because writes must keep `WAL + memory` consistent, while reads should remain lightweight and concurrent.
-
-## Features Implemented
-
-- TCP command server
-- In-memory key-value storage
-- `SET`, `GET`, `DEL`, `EXPIRE`, `TTL`, `INFO`, `QUIT`
-- Command aliases such as `DELETE`, `EXP`, and `EXIT`
-- TTL support during `SET`
-- Passive expiration on reads
-- Background expiration cleanup
-- Write-ahead logging for mutations
-- Snapshot persistence
-- WAL replay on restart
-- Corruption-tolerant WAL replay
-- Graceful shutdown with snapshot, WAL close, and server stop
-- Automated tests for parser, service, store, WAL, TCP integration, and full system flow
-
-## Supported Commands
-
-| Command | Example | Response |
-|---|---|---|
-| `SET key value` | `SET user alice` | `OK` |
-| `SET key value EX seconds` | `SET session abc EX 30` | `OK` |
-| `GET key` | `GET user` | `VAL alice` or `NIL` |
-| `DEL key` | `DEL user` | `INT 1` or `INT 0` |
-| `EXPIRE key seconds` | `EXPIRE session 60` | `INT 1` or `INT 0` |
-| `TTL key` | `TTL session` | `INT <seconds>` |
-| `INFO` | `INFO` | `INFO keys=<n> uptime=<seconds>` |
-| `QUIT` / `EXIT` | `QUIT` | `BYE` |
-
-### Command Aliases
-
-- `DELETE` acts as `DEL`
-- `EXP` acts as `EXPIRE`
-- `EX` can be used in `SET key value EX seconds`
-- `EXIT` acts as `QUIT`
-
-## TTL Expiration
-
-ZyraDB supports expiration in two ways:
-
-- Passive expiration
-  Expired keys are treated as missing when accessed through `GET` or `TTL`.
-
-- Scheduled cleanup
-  A background scheduler periodically removes expired keys from memory.
-
-### TTL Return Values
-
-- `INT -1` means the key exists and has no expiry
-- `INT -2` means the key does not exist or has already expired
-- `INT N` means the key will expire in approximately `N` seconds
+Reads stay lightweight and use the store's read lock, while writes use a stricter path to preserve correctness.
 
 ## Persistence and Recovery
 
-ZyraDB uses two persistence mechanisms together:
+ZyraDB combines two persistence mechanisms:
 
-- Write-ahead log
-  Every mutation is written to `zyra.wal` before or within the atomic mutation path so recent changes can be replayed.
+### Write-Ahead Log
 
-- Snapshot
-  A full state snapshot is written to `zyra.snapshot`. After a successful snapshot, the WAL is truncated to prevent unbounded growth.
+- Stored in `zyra.wal`
+- Records every `SET` and `DEL`
+- Uses Base64 encoding for stored key/value fields
+- Flushes writes to disk so mutations survive crashes more reliably
 
-### Startup Recovery Flow
+### Snapshot
 
-On startup, ZyraDB:
+- Stored in `zyra.snapshot`
+- Captures the current in-memory state
+- Skips expired entries
+- Replaces the old snapshot atomically when possible
+- Resets the WAL after a successful snapshot
+
+### Startup Flow
+
+When the application starts, it:
 
 1. loads the snapshot if present
 2. replays the WAL
-3. skips malformed WAL lines instead of crashing
-4. starts the expiry scheduler
-5. starts the TCP server
+3. starts the expiry scheduler
+4. starts the TCP server
 
-### Graceful Shutdown Flow
+### Shutdown Flow
 
-On normal JVM shutdown, ZyraDB:
+When the JVM shuts down, it:
 
 1. stops the expiry scheduler
 2. stops the TCP server
-3. saves a snapshot
-4. truncates the WAL through snapshot completion
-5. closes WAL resources
+3. saves a fresh snapshot
+4. closes WAL resources
 
-## Examples
-
-### Basic Session
-
-```text
-SET name Zyra
-OK
-
-GET name
-VAL Zyra
-
-DEL name
-INT 1
-
-GET name
-NIL
-```
-
-### TTL Example
-
-```text
-SET token abc123 EX 10
-OK
-
-TTL token
-INT 10
-
-GET token
-VAL abc123
-```
-
-### Expire an Existing Key
-
-```text
-SET cart active
-OK
-
-EXPIRE cart 30
-INT 1
-
-TTL cart
-INT 30
-```
-
-### Info Command
-
-```text
-INFO
-INFO keys=3 uptime=42
-```
+If snapshot creation fails, ZyraDB preserves the WAL so recovery can still happen later.
 
 ## Project Structure
 
 ```text
-src/
-  main/
-    java/com/zyra/
-      ZyraDbApplication.java
-      parser/
-        Command.java
-        CommandParser.java
-      scheduler/
-        ExpiryScheduler.java
-      service/
-        KeyValueService.java
-      store/
-        CommandExecutor.java
-        InMemoryStore.java
-        SnapshotManager.java
-        WriteAheadLog.java
-      tcp/
-        ClientHandler.java
-        TCPServer.java
-    resources/
-      application.properties
-  test/
-    java/com/zyra/
-      ZyradbApplicationTests.java
-      parser/
-      service/
-      store/
-      tcp/
+zyradb/
+|-- docs/
+|   `-- DETAILED_DOCUMENTATION.md
+|-- src/
+|   |-- main/
+|   |   |-- java/com/zyra/
+|   |   |   |-- ZyraDbApplication.java
+|   |   |   |-- parser/
+|   |   |   |   |-- Command.java
+|   |   |   |   `-- CommandParser.java
+|   |   |   |-- scheduler/
+|   |   |   |   `-- ExpiryScheduler.java
+|   |   |   |-- service/
+|   |   |   |   `-- KeyValueService.java
+|   |   |   |-- store/
+|   |   |   |   |-- CommandExecutor.java
+|   |   |   |   |-- InMemoryStore.java
+|   |   |   |   |-- SnapshotManager.java
+|   |   |   |   `-- WriteAheadLog.java
+|   |   |   `-- tcp/
+|   |   |       `-- TCPServer.java
+|   |   `-- resources/
+|   |       `-- application.properties
+|   `-- test/
+|       `-- java/com/zyra/
+|           |-- parser/
+|           |-- service/
+|           |-- store/
+|           |-- tcp/
+|           `-- ZyradbApplicationTests.java
+`-- README.md
 ```
 
-## Running the Project
+### Package Guide
+
+- `parser`: command parsing and normalization
+- `service`: command validation and execution
+- `store`: in-memory storage, WAL, snapshot, and replay helpers
+- `tcp`: socket server and client connection handling
+- `scheduler`: background expiry cleanup
+- `test`: unit and integration coverage for core engine behavior
+
+## Getting Started
 
 ### Prerequisites
 
 - Java 21
 - Maven 3.9+ or the included Maven Wrapper
 
-### Start the Server
+### Run the Server
 
-Using Maven Wrapper on Windows:
+Windows:
 
 ```powershell
 .\mvnw.cmd spring-boot:run
 ```
 
-Using Maven Wrapper on macOS/Linux:
+macOS/Linux:
 
 ```bash
 ./mvnw spring-boot:run
@@ -280,10 +258,74 @@ Using Maven Wrapper on macOS/Linux:
 The TCP server listens on:
 
 ```text
-localhost:6379
+localhost:6380
 ```
 
-### Run the Test Suite
+### Configuration
+
+Current runtime properties in `src/main/resources/application.properties`:
+
+```properties
+spring.application.name=zyradb
+zyra.tcp.port=6380
+```
+
+You can change the TCP port by updating `zyra.tcp.port`.
+
+## Supported Commands
+
+| Command | Example | Response |
+|---|---|---|
+| `SET key value` | `SET user alice` | `OK` |
+| `SET key value [EX seconds]` | `SET session abc EX 30` | `OK` |
+| `GET key` | `GET user` | `VAL alice` or `NIL` |
+| `DEL key` | `DEL user` | `INT 1` or `INT 0` |
+| `EXPIRE key seconds` | `EXPIRE session 60` | `INT 1` or `INT 0` |
+| `TTL key` | `TTL session` | `INT <seconds>`, `INT -1`, or `INT -2` |
+| `INFO` | `INFO` | `INFO keys=<n> uptime=<seconds>` |
+| `QUIT` | `QUIT` | `BYE` |
+
+### `EX` vs `EXPIRE`
+
+- `EX` is only a `SET` option. Use `SET key value EX seconds`.
+- `EXPIRE` is a standalone command. Use `EXPIRE key seconds` to add or update TTL on an existing key.
+
+### TTL Semantics
+
+- `INT -1` means the key exists and has no expiry
+- `INT -2` means the key does not exist or is already expired
+- `INT N` means the key expires in about `N` seconds
+
+## Sample Session
+
+```text
+SET name Zyra
+OK
+
+GET name
+VAL Zyra
+
+SET token abc123 EX 10
+OK
+
+TTL token
+INT 10
+
+DEL name
+INT 1
+
+INFO
+INFO keys=1 uptime=42
+
+QUIT
+BYE
+```
+
+You can connect using `telnet`, `nc`, or any simple TCP client.
+
+## Testing
+
+Run all tests:
 
 Windows:
 
@@ -297,33 +339,28 @@ macOS/Linux:
 ./mvnw test
 ```
 
-## Verification
+The test suite covers:
 
-The project includes automated coverage across the main engine layers:
+- parser behavior and aliases
+- service command handling
+- store concurrency and TTL behavior
+- WAL durability and replay
+- TCP integration behavior
+- full system startup, recovery, and shutdown flow
 
-- parser tests for command parsing and aliases
-- service tests for command validation and responses
-- store tests for expiration, TTL behavior, and concurrent access
-- WAL tests for durability and replay behavior
-- TCP integration tests for real socket-based command execution
-- full-system flow tests for restart, snapshot, replay, scheduler cleanup, and race scenarios
-
-This gives ZyraDB both unit-level confidence and end-to-end behavior verification.
-
-## Future Enhancements
+## Roadmap
 
 - RESP-compatible protocol support
-- append-only file compaction policies
-- configurable snapshot intervals
-- single-threaded command executor mode
-- transactions or batch commands
+- snapshot scheduling and config-driven persistence intervals
+- append-only file compaction improvements
+- transactions or pipelined batch execution
 - replication and follower recovery
-- metrics and observability endpoints
+- metrics and observability
 - authentication and access control
-- benchmark suite and performance profiling
+- benchmarking and profiling
 
 ## License
 
-This project is intended for educational purposes only. It is shared to demonstrate database internals, systems design concepts, and storage-engine fundamentals in a compact Java codebase.
+This project is currently shared for educational and portfolio purposes.
 
-No formal open-source license is currently included in this repository. Until a license file is added, the project should be treated as all rights reserved by default.
+No formal open-source license file is included yet, so the repository should be treated as all rights reserved until a license is added.

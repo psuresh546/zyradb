@@ -23,8 +23,8 @@ public final class CommandExecutor {
 
         switch (name) {
             case "SET" -> replaySet(args, store);
-            case "DEL", "DELETE" -> replayDelete(args, store);
-            case "EXPIRE", "EXP", "EX" -> replayExpire(args, store);
+            case "DEL" -> replayDelete(args, store);
+            case "EXPIRE" -> replayExpire(args, store);
             default -> {
             }
         }
@@ -45,7 +45,7 @@ public final class CommandExecutor {
             }
 
             String option = args.get(2).toUpperCase();
-            if (!(option.equals("EX") || option.equals("EXP") || option.equals("EXPIRE"))) {
+            if (!option.equals("EX")) {
                 return;
             }
 

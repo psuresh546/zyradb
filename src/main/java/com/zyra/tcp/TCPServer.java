@@ -43,7 +43,7 @@ public class TCPServer {
 
     @Autowired
     public TCPServer(
-            @Value("${zyra.tcp.port:6379}") int port,
+            @Value("${zyra.tcp.port:6380}") int port,
             @Value("${zyra.tcp.enabled:true}") boolean enabled,
             KeyValueService service,
             com.zyra.parser.CommandParser parser) {

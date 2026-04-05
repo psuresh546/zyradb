@@ -110,7 +110,7 @@ Relevant file: [TCPServer.java](/src/main/java/com/zyra/tcp/TCPServer.java)
 The TCP server is responsible for:
 
 - opening a `ServerSocket`
-- listening on port `6379` by default
+- listening on port `6380` by default
 - accepting client connections
 - assigning client work to a thread pool
 - sending line-based responses
@@ -148,12 +148,7 @@ name = SET
 args = [session, token123, EX, 30]
 ```
 
-The parser also normalizes aliases:
-
-- `DELETE` becomes `DEL`
-- `EXIT` becomes `QUIT`
-
-This is important because the rest of the system can work with one normalized command format instead of many user-facing variants.
+The parser keeps the command surface strict and predictable by accepting canonical command names directly.
 
 ### 3.3 Service Layer
 
@@ -324,9 +319,11 @@ Response:
 OK
 ```
 
-### 5.2 `SET key value EX seconds`
+### 5.2 `SET key value [EX seconds]`
 
 Stores a value with a TTL.
+
+Here, `EX` is part of the `SET` command syntax. It is not a standalone command.
 
 Example:
 
@@ -367,6 +364,8 @@ Returns:
 
 Adds a TTL to an existing key.
 
+This is separate from `EX` in `SET`. Use `EXPIRE` when the key already exists and you only want to change its expiration.
+
 Returns:
 
 - `INT 1` if the key exists and expiry was applied
@@ -379,6 +378,11 @@ Returns:
 - `INT -1` if the key exists with no expiry
 - `INT -2` if the key does not exist or is expired
 - `INT N` if `N` seconds remain
+
+### 5.6.1 `EX` vs `EXPIRE`
+
+- `EX` is only used inside `SET`, for example `SET token abc EX 30`
+- `EXPIRE` is a standalone command, for example `EXPIRE token 30`
 
 ### 5.7 `INFO`
 

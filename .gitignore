@@ -5,6 +5,7 @@ zyra.snapshot
 zyra.wal
 .DS_Store
 *.log
+smoke-results*.txt
 .mvn/wrapper/maven-wrapper.jar
 !**/src/main/**/target/
 !**/src/test/**/target/

@@ -21,9 +21,9 @@ class CommandParserTest {
     }
 
     @Test
-    void normalizesAliases() {
-        assertEquals("DEL", parser.parse("DELETE key").getName());
-        assertEquals("EXIT", parser.parse("QUIT").getName());
+    void preservesCanonicalCommandNames() {
+        assertEquals("DEL", parser.parse("DEL key").getName());
+        assertEquals("QUIT", parser.parse("QUIT").getName());
     }
 
     @Test

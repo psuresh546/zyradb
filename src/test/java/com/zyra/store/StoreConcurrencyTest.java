@@ -14,6 +14,7 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
@@ -76,11 +77,12 @@ class StoreConcurrencyTest {
     void snapshotSaveRemainsLoadableWhileWritesHappenConcurrently() throws Exception {
         ExecutorService executor = Executors.newFixedThreadPool(2);
         CountDownLatch start = new CountDownLatch(1);
+        AtomicInteger successfulSaves = new AtomicInteger();
 
         Future<?> writer = executor.submit(() -> {
             start.await();
             for (int i = 0; i < 200; i++) {
-                store.set("k-" + i, "v-" + i, -1);
+                service.execute(new Command("SET", List.of("k-" + i, "v-" + i)));
             }
             return null;
         });
@@ -88,7 +90,9 @@ class StoreConcurrencyTest {
         Future<?> snapshotter = executor.submit(() -> {
             start.await();
             for (int i = 0; i < 20; i++) {
-                SnapshotManager.save(store);
+                if (SnapshotManager.save(store)) {
+                    successfulSaves.incrementAndGet();
+                }
             }
             return null;
         });
@@ -99,22 +103,18 @@ class StoreConcurrencyTest {
 
         executor.shutdownNow();
 
+        assertEquals(20, successfulSaves.get());
+        assertTrue(SnapshotManager.save(store));
         assertTrue(Files.exists(SNAPSHOT_PATH));
 
         store.clear();
         SnapshotManager.load(store);
 
-        int restored = 0;
         for (int i = 0; i < 200; i++) {
             String key = "k-" + i;
             String value = store.get(key);
-            if (value != null) {
-                restored++;
-                assertEquals("v-" + i, value);
-            }
+            assertEquals("v-" + i, value);
         }
-
-        assertTrue(restored > 0);
     }
 
     @Test
