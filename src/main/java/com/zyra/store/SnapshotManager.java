@@ -137,6 +137,8 @@ public class SnapshotManager {
             }
         }
 
-        throw lastFailure;
+        throw lastFailure != null
+                ? lastFailure
+                : new IOException("Failed to move snapshot into place");
     }
 }

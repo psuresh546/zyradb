@@ -60,32 +60,64 @@ That makes it a strong portfolio project for learning distributed systems and da
 
 ## Architecture
 
-ZyraDB follows a layered architecture where each component owns one part of the request or persistence lifecycle.
+ZyraDB is organized as a small storage-engine pipeline with separate layers for networking, command execution, in-memory state, and persistence.
 
 ```text
-Client
-  ->
-TCPServer
-  ->
-CommandParser
-  ->
-KeyValueService
-  ->
-InMemoryStore
-  +-> WriteAheadLog
-  +-> SnapshotManager
-  +-> ExpiryScheduler
+                +----------------------+
+                |        Client        |
+                +----------+-----------+
+                           |
+                           v
+                +----------------------+
+                |      TCPServer       |
+                |  TCP socket server   |
+                +----------+-----------+
+                           |
+                           v
+                +----------------------+
+                |    CommandParser     |
+                | tokenizes input line |
+                +----------+-----------+
+                           |
+                           v
+                +----------------------+
+                |   KeyValueService    |
+                | command validation   |
+                | and execution        |
+                +----+------------+----+
+                     |            |
+          write path |            | read path
+                     v            v
+            +---------------------------+
+            |       InMemoryStore       |
+            | keys, values, TTL metadata|
+            +-------------+-------------+
+                          |
+        +-----------------+-----------------+
+        |                                   |
+        v                                   v
++-------------------+             +-------------------+
+|   WriteAheadLog   |             |  ExpiryScheduler  |
+| mutation durability|            | background cleanup|
++-------------------+             +-------------------+
+                          |
+                          v
+                 +-------------------+
+                 |  SnapshotManager  |
+                 | snapshot + WAL    |
+                 | compaction        |
+                 +-------------------+
 ```
 
-### Core Components
+### Architecture Breakdown
 
 #### `ZyraDbApplication`
 
-Bootstraps the system, loads persisted state, replays the WAL, starts the expiry scheduler, starts the TCP server, and registers a shutdown hook for safe termination.
+Bootstraps the database lifecycle. On startup it loads the snapshot, replays the WAL, starts the expiry scheduler, and then starts the TCP server. On shutdown it coordinates a safe persistence flow.
 
 #### `TCPServer`
 
-Accepts client socket connections on the configured port and processes line-based commands. Each client connection is handled through the server's worker executor.
+Handles raw TCP connections and line-based request/response exchange. Each client request enters the system through this layer.
 
 Default runtime configuration:
 
@@ -94,27 +126,27 @@ Default runtime configuration:
 
 #### `CommandParser`
 
-Parses raw input into a structured `Command` object and normalizes command aliases.
+Converts a raw text command into a structured `Command` object that the service layer can validate and execute.
 
 #### `KeyValueService`
 
-Acts as the command execution layer. It validates input, routes operations, and serializes writes so `WAL + in-memory state` remain consistent.
+Owns command semantics. It validates the request, routes the command, and serializes mutations so the write path stays consistent across memory and persistence.
 
 #### `InMemoryStore`
 
-Maintains live key/value data and expiry metadata using a `ReentrantReadWriteLock` for safe concurrent access.
+Stores live key/value data and TTL metadata. It uses a `ReentrantReadWriteLock` so reads remain lightweight while writes stay safe.
 
 #### `WriteAheadLog`
 
-Appends mutations to `zyra.wal` before in-memory state is considered committed. This allows the database to recover recent writes after restart.
+Persists mutating operations to `zyra.wal` before they are relied on for recovery. This protects recent writes across restart.
 
 #### `SnapshotManager`
 
-Writes a compact snapshot to `zyra.snapshot` and truncates the WAL after a successful snapshot so recovery stays fast.
+Creates a snapshot file `zyra.snapshot` and resets the WAL after a successful save so recovery remains fast and bounded.
 
 #### `ExpiryScheduler`
 
-Runs periodic cleanup for expired keys while passive expiration is also enforced on reads like `GET` and `TTL`.
+Runs periodic cleanup for expired keys. Passive expiration still happens during reads, but this layer keeps stale keys from sitting in memory indefinitely.
 
 ## Request Lifecycle
 
@@ -191,6 +223,8 @@ If snapshot creation fails, ZyraDB preserves the WAL so recovery can still happe
 
 ## Project Structure
 
+The repository is split into a small runtime core, persistence helpers, and focused test coverage.
+
 ```text
 zyradb/
 |-- docs/
@@ -225,14 +259,30 @@ zyradb/
 `-- README.md
 ```
 
-### Package Guide
+### Directory Guide
 
-- `parser`: command parsing and normalization
-- `service`: command validation and execution
-- `store`: in-memory storage, WAL, snapshot, and replay helpers
-- `tcp`: socket server and client connection handling
-- `scheduler`: background expiry cleanup
-- `test`: unit and integration coverage for core engine behavior
+#### `src/main/java/com/zyra`
+
+Contains the application runtime:
+
+- `ZyraDbApplication.java`: startup and shutdown orchestration
+- `parser/`: command parsing models and logic
+- `service/`: command execution rules
+- `store/`: in-memory state, WAL, snapshot, and replay helpers
+- `tcp/`: TCP server and socket handling
+- `scheduler/`: background expiry cleanup
+
+#### `src/main/resources`
+
+Contains runtime configuration such as `application.properties`.
+
+#### `src/test/java/com/zyra`
+
+Contains unit and integration tests for parser behavior, service logic, storage, persistence, concurrency, and end-to-end TCP flows.
+
+#### `docs`
+
+Contains the deeper technical write-up in `DETAILED_DOCUMENTATION.md`.
 
 ## Getting Started
 
