@@ -1,5 +1,8 @@
 package com.zyra.store;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.FileInputStream;
@@ -15,6 +18,8 @@ import java.nio.file.StandardOpenOption;
 import java.util.Base64;
 
 public class WriteAheadLog {
+
+    private static final Logger log = LoggerFactory.getLogger(WriteAheadLog.class);
 
     private static final String WAL_FILE = "zyra.wal";
     private static final Path WAL_PATH = Path.of(WAL_FILE);
@@ -75,12 +80,12 @@ public class WriteAheadLog {
                 try {
                     replayLine(line, store);
                 } catch (Exception e) {
-                    System.err.println("Skipping corrupted WAL entry: " + line);
+                    log.warn("Skipping corrupted WAL entry: {}", line);
                 }
             }
 
         } catch (IOException e) {
-            System.err.println("WAL replay failed, skipping recovery from WAL: " + e.getMessage());
+            log.warn("WAL replay failed, skipping recovery from WAL: {}", e.getMessage());
         } finally {
             store.writeLock().unlock();
         }

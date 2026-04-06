@@ -25,8 +25,10 @@ For a deeper walkthrough of the internals, see [Detailed Documentation](docs/DET
 - [Supported Commands](#supported-commands)
 - [Sample Session](#sample-session)
 - [Testing](#testing)
+- [Benchmark](#benchmark)
 - [Roadmap](#roadmap)
 - [License](#license)
+- [Disclaimer](#disclaimer)
 
 ## Why ZyraDB
 
@@ -391,12 +393,18 @@ macOS/Linux:
 
 The test suite covers:
 
-- parser behavior and aliases
+- parser behavior and validation
 - service command handling
 - store concurrency and TTL behavior
 - WAL durability and replay
 - TCP integration behavior
 - full system startup, recovery, and shutdown flow
+
+GitHub Actions CI is configured in `.github/workflows/ci.yml` and runs `./mvnw test` on every push to `main`.
+
+## Benchmark
+
+On a local Windows development run, ZyraDB processed `10,000` sequential `SET` commands over TCP in about `33.799s`, which is roughly `296 ops/sec`. This is not a formal benchmark suite, but it gives a quick baseline for the current single-node implementation and makes the runtime behavior more concrete for reviewers.
 
 ## Roadmap
 
@@ -411,6 +419,8 @@ The test suite covers:
 
 ## License
 
-This project is currently shared for educational and portfolio purposes.
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
 
-No formal open-source license file is included yet, so the repository should be treated as all rights reserved until a license is added.
+## Disclaimer
+
+This project is built for educational and learning purposes only. It is not intended to be used as a production database or as a drop-in replacement for Redis or other mature data stores.

@@ -5,6 +5,8 @@ import com.zyra.store.InMemoryStore;
 import com.zyra.store.SnapshotManager;
 import com.zyra.store.WriteAheadLog;
 import com.zyra.tcp.TCPServer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.boot.CommandLineRunner;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -14,6 +16,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @SpringBootApplication
 public class ZyraDbApplication {
+
+    private static final Logger log = LoggerFactory.getLogger(ZyraDbApplication.class);
 
     public static void main(String[] args) {
         var context = SpringApplication.run(ZyraDbApplication.class, args);
@@ -26,19 +30,19 @@ public class ZyraDbApplication {
                 return;
             }
 
-            System.out.println("ZyraDB shutting down safely...");
+            log.info("ZyraDB shutting down safely...");
 
             ExpiryScheduler.shutdown();
             tcpServer.shutdown();
 
             boolean snapshotSaved = SnapshotManager.save(store);
             if (!snapshotSaved) {
-                System.err.println("Snapshot save failed. Preserving WAL for recovery.");
+                log.warn("Snapshot save failed. Preserving WAL for recovery.");
             }
 
             WriteAheadLog.shutdown();
 
-            System.out.println("Shutdown complete.");
+            log.info("Shutdown complete.");
         }, "zyra-shutdown"));
     }
 

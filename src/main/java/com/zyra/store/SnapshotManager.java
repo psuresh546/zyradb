@@ -1,5 +1,8 @@
 package com.zyra.store;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import java.io.BufferedReader;
 import java.io.BufferedWriter;
 import java.io.IOException;
@@ -13,6 +16,8 @@ import java.util.Base64;
 import java.util.Map;
 
 public class SnapshotManager {
+
+    private static final Logger log = LoggerFactory.getLogger(SnapshotManager.class);
 
     private static final String SNAPSHOT_FILE = "zyra.snapshot";
     private static final String TEMP_FILE = "zyra.snapshot.tmp";
@@ -46,7 +51,7 @@ public class SnapshotManager {
 
                 writer.flush();
             } catch (IOException e) {
-                e.printStackTrace();
+                log.error("Snapshot write failed", e);
                 deleteTempFileQuietly();
                 return false;
             }
@@ -56,7 +61,7 @@ public class SnapshotManager {
                 WriteAheadLog.reset();
                 return true;
             } catch (IOException | RuntimeException e) {
-                e.printStackTrace();
+                log.error("Snapshot move/reset failed", e);
                 deleteTempFileQuietly();
                 return false;
             }
@@ -87,7 +92,7 @@ public class SnapshotManager {
                 }
             }
         } catch (IOException e) {
-            e.printStackTrace();
+            log.error("Snapshot load failed", e);
         } finally {
             store.writeLock().unlock();
         }

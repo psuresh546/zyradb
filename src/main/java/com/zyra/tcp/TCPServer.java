@@ -1,5 +1,6 @@
 package com.zyra.tcp;
 
+import com.zyra.parser.CommandParser;
 import com.zyra.service.KeyValueService;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -33,7 +34,7 @@ public class TCPServer {
     private final int port;
     private final boolean enabled;
     private final KeyValueService service;
-    private final com.zyra.parser.CommandParser parser;
+    private final CommandParser parser;
     private final AtomicBoolean started = new AtomicBoolean(false);
     private final AtomicBoolean running = new AtomicBoolean(false);
     private final Set<Socket> clientSockets = ConcurrentHashMap.newKeySet();
@@ -46,7 +47,7 @@ public class TCPServer {
             @Value("${zyra.tcp.port:6380}") int port,
             @Value("${zyra.tcp.enabled:true}") boolean enabled,
             KeyValueService service,
-            com.zyra.parser.CommandParser parser) {
+            CommandParser parser) {
         this.port = port;
         this.enabled = enabled;
         this.service = service;

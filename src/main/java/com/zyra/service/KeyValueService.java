@@ -8,6 +8,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
+
 @Service
 public class KeyValueService {
 
@@ -79,15 +80,11 @@ public class KeyValueService {
                 : -1;
 
         return withMutationLock(() -> {
-            var storeWriteLock = store.writeLock();
-            storeWriteLock.lock();
-            try {
+            return withStoreWriteLock(() -> {
                 WriteAheadLog.logSet(key, value, expiryTime);
                 store.restore(key, value, expiryTime);
                 return "OK";
-            } finally {
-                storeWriteLock.unlock();
-            }
+            });
         });
     }
 
@@ -115,15 +112,11 @@ public class KeyValueService {
 
         String key = command.getArgs().get(0);
         return withMutationLock(() -> {
-            var storeWriteLock = store.writeLock();
-            storeWriteLock.lock();
-            try {
+            return withStoreWriteLock(() -> {
                 WriteAheadLog.logDelete(key);
                 boolean deleted = store.delete(key);
                 return "INT " + (deleted ? 1 : 0);
-            } finally {
-                storeWriteLock.unlock();
-            }
+            });
         });
     }
 
@@ -145,9 +138,7 @@ public class KeyValueService {
             String key = command.getArgs().get(0);
             long expiryTime = System.currentTimeMillis() + (seconds * 1000);
             return withMutationLock(() -> {
-                var storeWriteLock = store.writeLock();
-                storeWriteLock.lock();
-                try {
+                return withStoreWriteLock(() -> {
                     String value = store.get(key);
                     if (value == null) {
                         return "INT 0";
@@ -156,9 +147,7 @@ public class KeyValueService {
                     WriteAheadLog.logSet(key, value, expiryTime);
                     store.restore(key, value, expiryTime);
                     return "INT 1";
-                } finally {
-                    storeWriteLock.unlock();
-                }
+                });
             });
 
         } catch (NumberFormatException e) {
@@ -193,6 +182,16 @@ public class KeyValueService {
             return action.run();
         } finally {
             mutationLock.unlock();
+        }
+    }
+
+    private String withStoreWriteLock(CommandAction action) {
+        var storeWriteLock = store.writeLock();
+        storeWriteLock.lock();
+        try {
+            return action.run();
+        } finally {
+            storeWriteLock.unlock();
         }
     }
 
