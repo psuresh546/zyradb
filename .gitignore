@@ -37,3 +37,7 @@ build/
 
 ### VS Code ###
 .vscode/
+scripts/test.txt
+
+# Local-only benchmark helpers
+scripts/benchmark*.ps1

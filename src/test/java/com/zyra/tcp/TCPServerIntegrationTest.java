@@ -13,12 +13,19 @@ import java.io.BufferedWriter;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
+import java.lang.reflect.Field;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketTimeoutException;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Set;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class TCPServerIntegrationTest {
 
@@ -132,6 +139,78 @@ class TCPServerIntegrationTest {
         }
     }
 
+    @Test
+    void canRetryStartAfterInitialBindFailure() throws Exception {
+        server.shutdown();
+        waitForServerToStop();
+
+        try (ServerSocket blocker = new ServerSocket(port)) {
+            assertThrows(IllegalStateException.class, server::start);
+        }
+
+        server.start();
+        waitForServer();
+
+        try (
+                Socket socket = new Socket("localhost", port);
+                BufferedWriter writer = new BufferedWriter(
+                        new OutputStreamWriter(socket.getOutputStream(), StandardCharsets.UTF_8));
+                BufferedReader reader = new BufferedReader(
+                        new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8))
+        ) {
+            writeLine(writer, "SET rebound ok");
+            assertEquals("OK", reader.readLine());
+
+            writeLine(writer, "GET rebound");
+            assertEquals("VAL ok", reader.readLine());
+        }
+    }
+
+    @Test
+    void rejectedConnectionsAreRemovedFromTrackingSet() throws Exception {
+        server.shutdown();
+        waitForServerToStop();
+
+        server = new TCPServer(port, true, 1, new KeyValueService(store), new CommandParser());
+        server.start();
+        waitForServer();
+
+        List<Socket> clients = new ArrayList<>();
+        int rejectedConnections = 0;
+
+        try {
+            for (int i = 0; i < 80; i++) {
+                Socket socket = new Socket("localhost", port);
+                socket.setSoTimeout(200);
+                clients.add(socket);
+            }
+
+            for (Socket socket : clients) {
+                try {
+                    BufferedReader reader = new BufferedReader(
+                            new InputStreamReader(socket.getInputStream(), StandardCharsets.UTF_8));
+                    String line = reader.readLine();
+                    if ("ERR server at capacity, try again later".equals(line)) {
+                        rejectedConnections++;
+                    }
+                } catch (SocketTimeoutException ignored) {
+                    // Accepted connections block waiting for input, which is expected here.
+                }
+            }
+        } finally {
+            for (Socket socket : clients) {
+                try {
+                    socket.close();
+                } catch (IOException ignored) {
+                }
+            }
+        }
+
+        assertTrue(rejectedConnections > 0);
+        waitForTrackedClientsToDrain();
+        assertEquals(0, trackedClientCount());
+    }
+
     private void writeLine(BufferedWriter writer, String line) throws IOException {
         writer.write(line);
         writer.newLine();
@@ -170,5 +249,29 @@ class TCPServerIntegrationTest {
         }
 
         throw new IllegalStateException("TCP server did not stop in time");
+    }
+
+    private void waitForTrackedClientsToDrain() throws Exception {
+        long deadline = System.nanoTime() + Duration.ofSeconds(5).toNanos();
+
+        while (System.nanoTime() < deadline) {
+            if (trackedClientCount() == 0) {
+                return;
+            }
+            Thread.sleep(50);
+        }
+
+        throw new IllegalStateException("Tracked client sockets did not drain in time");
+    }
+
+    @SuppressWarnings("unchecked")
+    private int trackedClientCount() {
+        try {
+            Field field = TCPServer.class.getDeclaredField("clientSockets");
+            field.setAccessible(true);
+            return ((Set<Socket>) field.get(server)).size();
+        } catch (ReflectiveOperationException e) {
+            throw new AssertionError("Unable to inspect tracked client sockets", e);
+        }
     }
 }
